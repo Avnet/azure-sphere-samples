@@ -166,6 +166,7 @@ static bool IsConnectionReadyToSendTelemetry(void);
 static ExitCode InitPeripheralsAndHandlers(void);
 static void CloseFdAndPrintError(int fd, const char *fdName);
 static void ClosePeripheralsAndHandlers(void);
+static void parseAndSendToAzure(char *);
 
 // File descriptors - initialized to invalid value
 // UART
@@ -981,6 +982,9 @@ static void UartEventHandler(EventLoop *el, int fd, EventLoop_IoEvents events, v
             responseMsg[responseMsgSize] = '\0';
             Log_Debug("RX: %s\n", responseMsg);
 
+            // Call the routine that knows how to parse the response and send data to Azure
+            parseAndSendToAzure(responseMsg);
+
             // Update the currentData index and adjust for the '\n' character
             currentData = tempCurrentData + 1;
             // Overwrite the '\n' character so we don't accidently find it and think
@@ -1034,4 +1038,76 @@ static void SendUartMessage(int uartFd, const char *dataToSend)
     }
 
     Log_Debug("Sent %zu bytes over UART in %d calls.\n", totalBytesSent, sendIterations);
+}
+
+/// <summary>
+///     Function to parse UART Rx messages and send to IoT Hub.
+/// </summary>
+/// <param name="msgToParse">The message received from the UART</param>
+static void parseAndSendToAzure(char *msgToParse)
+{
+    // This routine is expecting data in the format key:value.  In all cases the value will be
+    // represented as a character string.  We're expecting 4 different keys Responses to the
+    // commands. three from the IpAddressCmd.  When we receive these responses we'll send the data
+    // as device twin reported properties.
+    //
+    //    lo:<ipaddress>    // Loopback Address
+    //    wlan0:<ipaddress> // WiFi address
+    //    eth0:<ipaddress>  // Ethernet address
+    //
+    // We're expecting one response to the ReadCpuCmd.  If the response is from this command we'll
+    // send data to azure as telemetry.
+    //    temp:<temp in C>
+
+    // Define the {"key": "value"} Json string format for sending string data
+    static const char stringJsonObject[] = "{\"%s\":\"%s\"}";
+
+    // Define the {"key": value} Json string format for sending floating point data
+    static const char floatJsonOjbect[] = "{\"%s\":%2.1f}";
+
+    // Variable to hold the "key" string
+    char key[16];
+    // Variable to hold the "value" string
+    char value[32];
+
+// Assume we'll be sending a message to Azure and allocate a buffer
+#define JSON_BUFFER_SIZE 64
+    char *pjsonBuffer = (char *)malloc(JSON_BUFFER_SIZE);
+    if (pjsonBuffer == NULL) {
+        Log_Debug("ERROR: not enough memory to send a message to Azure");
+        return;
+    }
+
+    // Find the index of the ':' in the string
+    for (int i = 0; i < strlen(msgToParse); i++) {
+        if (msgToParse[i] == ':') {
+            // We found the seperator character ':'.  Process the message!
+
+            // Extract the "key" and null terminate it
+            strncpy(key, msgToParse, (size_t)i);
+            key[i] = '\0';
+
+            // Extract the "value" and null terminate it
+            strncpy(value, &msgToParse[i + 1], strlen(msgToParse) - (size_t)i - 1);
+            value[(strlen(msgToParse) - (size_t)i - 1)] = '\0';
+
+            // Check the special case where the key is "temp."  We need to convert this
+            // case to a float, but if it's an IP address we'll just pass the string up.
+            if (strncmp(key, "temp", strlen(key)) == 0) {
+
+                // construct the telemetry message and send it
+                snprintf(pjsonBuffer, JSON_BUFFER_SIZE, floatJsonOjbect, key, atof(value));
+                SendTelemetry(pjsonBuffer);
+
+            } else { // key is a interface name
+
+                // construct a device twin reported properties message and send it
+                snprintf(pjsonBuffer, JSON_BUFFER_SIZE, stringJsonObject, key, value);
+                TwinReportState(pjsonBuffer);
+            }
+        }
+    }
+
+    // Free the memory
+    free(pjsonBuffer);
 }
