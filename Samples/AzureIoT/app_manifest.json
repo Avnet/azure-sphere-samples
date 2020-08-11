@@ -1,6 +1,6 @@
 {
   "SchemaVersion": 1,
-  "Name": "AzureSpherePOC",
+  "Name": "AzureSpherePOC_V1.1",
   "ComponentId": "CF67D732-8BAC-4D36-89AD-4E9344FBBB1F",
   "EntryPoint": "/bin/app",
   "CmdArgs": [ "--ConnectionType", "DPS", "--ScopeID", "0ne0008CB04" ],

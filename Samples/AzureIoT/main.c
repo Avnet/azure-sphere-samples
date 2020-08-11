@@ -167,7 +167,8 @@ static void SendUartMessage(int uartFd, const char *dataToSend);
 static const char *GetReasonString(IOTHUB_CLIENT_CONNECTION_STATUS_REASON reason);
 static const char *GetAzureSphereProvisioningResultString(
     AZURE_SPHERE_PROV_RETURN_VALUE provisioningResult);
-static void SendTelemetry(const char *jsonMessage);
+static void SendTelemetry(const char *jsonMessage, const char *propertyName,
+                          const char *propertyValue);
 static void SetupAzureClient(void);
 static void uartTxCpuTempEventHandler(EventLoopTimer *timer);
 static void uartTxIpAddressEventHandler(EventLoopTimer *timer);
@@ -939,9 +940,11 @@ static bool IsConnectionReadyToSendTelemetry(void)
 /// <summary>
 ///     Sends telemetry to Azure IoT Hub
 /// </summary>
-static void SendTelemetry(const char *jsonMessage)
+static void SendTelemetry(const char *jsonMessage, const char *propertyName,
+                          const char *propertyValue)
 {
     Log_Debug("Sending Azure IoT Hub telemetry: %s.\n", jsonMessage);
+
 
     // Check whether the device is connected to the internet.
     if (IsConnectionReadyToSendTelemetry() == false) {
@@ -953,6 +956,12 @@ static void SendTelemetry(const char *jsonMessage)
     if (messageHandle == 0) {
         Log_Debug("ERROR: unable to create a new IoTHubMessage.\n");
         return;
+    }
+
+    if ((propertyName != NULL) && (propertyValue != NULL)) {
+        
+        // Set the property details
+        IoTHubMessage_SetProperty(messageHandle, propertyName, propertyValue);
     }
 
     if (IoTHubDeviceClient_LL_SendEventAsync(iothubClientHandle, messageHandle, SendEventCallback,
@@ -1000,28 +1009,6 @@ static void TwinReportState(const char *jsonState)
 static void ReportedStateCallback(int result, void *context)
 {
     Log_Debug("INFO: Azure IoT Hub Device Twin reported state callback: status code %d.\n", result);
-}
-
-#define TELEMETRY_BUFFER_SIZE 100
-
-/// <summary>
-///     Generate simulated telemetry and send to Azure IoT Hub.
-/// </summary>
-void SendSimulatedTelemetry(void)
-{
-    // generate a simulated temperature
-    static float temperature = 50.0f;                    // starting temperature
-    float delta = ((float)(rand() % 41)) / 20.0f - 1.0f; // between -1.0 and +1.0
-    temperature += delta;
-
-    char telemetryBuffer[TELEMETRY_BUFFER_SIZE];
-    int len =
-        snprintf(telemetryBuffer, TELEMETRY_BUFFER_SIZE, "{\"Temperature\":%3.2f}", temperature);
-    if (len < 0 || len >= TELEMETRY_BUFFER_SIZE) {
-        Log_Debug("ERROR: Cannot write telemetry to buffer.\n");
-        return;
-    }
-    SendTelemetry(telemetryBuffer);
 }
 
 /// <summary>
@@ -1243,7 +1230,12 @@ static void parseAndSendToAzure(char *msgToParse)
 
                 // construct the telemetry message and send it
                 snprintf(pjsonBuffer, JSON_BUFFER_SIZE, floatJsonOjbect, key, atof(value));
-                SendTelemetry(pjsonBuffer);
+                
+                // Don't set any message properties
+//              SendTelemetry(pjsonBuffer, NULL, NULL);
+               
+                // Set the message property
+                SendTelemetry(pjsonBuffer, "log", "true");
 
             } else { // key is a interface name
 
