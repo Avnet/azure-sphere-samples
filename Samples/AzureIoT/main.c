@@ -116,8 +116,18 @@ typedef enum {
 
 
 } ExitCode;
-
 static volatile sig_atomic_t exitCode = ExitCode_Success;
+
+// Define the {"key": "value"} Json string format for sending string data
+static const char stringJsonObject[] = "{\"%s\":\"%s\"}";
+
+// Define the {"key": value} Json string format for sending floating point data
+static const char floatJsonOjbect[] = "{\"%s\":%2.1f}";
+
+// Define the {"key": value} Json string format for sending integer data
+static const char integerJsonObject[] = "{\"%s\":%d}";
+
+#define JSON_BUFFER_SIZE 64
 
 /// <summary>
 /// Connection types to use when connecting to the Azure IoT Hub.
@@ -200,6 +210,8 @@ static const int AzureIoTMinReconnectPeriodSeconds = 60;      // back off when r
 static const int AzureIoTMaxReconnectPeriodSeconds = 10 * 60; // back off limit
 
 static int azureIoTPollPeriodSeconds = -1;
+static int sendTelemetryPeriodSeconds = 10;
+static int readIpAddressPeriodSeconds = 15;
 
 // Usage text for command line arguments in application manifest.
 static const char *cmdLineArgsUsageText =
@@ -315,7 +327,9 @@ static void uartTxIpAddressEventHandler(EventLoopTimer *timer)
     if (++count == 5) {
 
         // Update the timer to fire every 120 seconds
-        static const struct timespec txUartIpAddressPeriod = {.tv_sec = 120, .tv_nsec = 1000 * 0};
+        readIpAddressPeriodSeconds = 120;
+        const struct timespec txUartIpAddressPeriod = {.tv_sec = readIpAddressPeriodSeconds,
+                                                       .tv_nsec = 1000 * 0};
         SetEventLoopTimerPeriod(txUartIpAddressMsgTimer, &txUartIpAddressPeriod);
     }
 
@@ -517,15 +531,17 @@ static ExitCode InitPeripheralsAndHandlers(void)
     }
 
     // Set up a timer to periodically send UART ReadCPUTempCmd messages.
-    static const struct timespec txUartCpuTempPeriod = {.tv_sec = 10, .tv_nsec = 1000 * 0};
+    const struct timespec txUartCpuTempPeriod = {.tv_sec = sendTelemetryPeriodSeconds,
+                                                 .tv_nsec = 1000 * 0};
     txUartCpuTempMsgTimer =
         CreateEventLoopPeriodicTimer(eventLoop, &uartTxCpuTempEventHandler, &txUartCpuTempPeriod);
     if (txUartCpuTempMsgTimer == NULL) {
         return ExitCode_Init_Uart_CpuTemp_Timer;
     }
 
-    // Set up a timer to periodically send UART ReadCPUTempCmd messages.
-    static const struct timespec txUartIpAddressPeriod = {.tv_sec = 5, .tv_nsec = 1000 * 0};
+    // Set up a timer to periodically send UART read IP Address Cmd messages.
+    const struct timespec txUartIpAddressPeriod = {.tv_sec = readIpAddressPeriodSeconds,
+                                                   .tv_nsec = 1000 * 0};
     txUartIpAddressMsgTimer = CreateEventLoopPeriodicTimer(eventLoop, &uartTxIpAddressEventHandler,
                                                            &txUartIpAddressPeriod);
     if (txUartIpAddressMsgTimer == NULL) {
@@ -598,11 +614,18 @@ static void ConnectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result,
 {
     iothubAuthenticated = (result == IOTHUB_CLIENT_CONNECTION_AUTHENTICATED);
     Log_Debug("Azure IoT connection status: %s\n", GetReasonString(reason));
+    
     if (iothubAuthenticated) {
         // Send static device twin properties when connection is established
         TwinReportState("{\"manufacturer\":\"Avnet\",\"model\":\"Azure Sphere POC Device\"}");
-    }
 
+        // Send the current value of the telemetry timer up as a device twin reported property
+        char telemetryPeriodTwin[32];
+        snprintf(telemetryPeriodTwin, sizeof(telemetryPeriodTwin), integerJsonObject,
+                 "TelemetryInterval", sendTelemetryPeriodSeconds);
+        TwinReportState(telemetryPeriodTwin);
+    }
+    
     // Since the connection state just changed, update the status LEDs
     updateConnectionStatusLed();
 }
@@ -779,20 +802,26 @@ static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsig
         desiredProperties = rootObject;
     }
 
-/*    // The desired properties should have a "StatusLED" object
-    int statusLedValue = json_object_dotget_boolean(desiredProperties, "StatusLED");
-    if (statusLedValue != -1) {
-        statusLedOn = statusLedValue == 1;
-        GPIO_SetValue(deviceTwinStatusLedGpioFd, statusLedOn ? GPIO_Value_Low : GPIO_Value_High);
-    }
+     // The desired properties should have a "TelemetryInterval" object
+    int TelemetryIntervalValue = (int)json_object_dotget_number(desiredProperties, "TelemetryInterval");
+    if (TelemetryIntervalValue > 0) {
 
-    // Report current status LED state
-    if (statusLedOn) {
-        TwinReportState("{\"StatusLED\":true}");
-    } else {
-        TwinReportState("{\"StatusLED\":false}");
+        // Update the global variable
+        sendTelemetryPeriodSeconds = TelemetryIntervalValue;
+
+        // Update the timer to reflect the new request
+        const struct timespec cpuTempRequestPeriod = {.tv_sec = sendTelemetryPeriodSeconds,
+                                                      .tv_nsec = 1000 * 0};
+        // Request the timer change
+        SetEventLoopTimerPeriod(txUartCpuTempMsgTimer, &cpuTempRequestPeriod);
+
+        // construct a device twin reported properties message and send it
+        // Send the current value of the telemetry timer up as a device twin reported property
+        char telemetryPeriodTwin[32];
+        snprintf(telemetryPeriodTwin, sizeof(telemetryPeriodTwin), integerJsonObject,
+                 "TelemetryInterval", sendTelemetryPeriodSeconds);
+        TwinReportState(telemetryPeriodTwin);
     }
-*/
 cleanup:
     // Release the allocated memory.
     json_value_free(rootProperties);
@@ -1161,12 +1190,6 @@ static void parseAndSendToAzure(char *msgToParse)
     // We're expecting one response to the ReadCpuCmd.  If the response is from this command we'll
     // send data to azure as telemetry.
     //    temp:<temp in C>
-
-    // Define the {"key": "value"} Json string format for sending string data
-    static const char stringJsonObject[] = "{\"%s\":\"%s\"}";
-
-    // Define the {"key": value} Json string format for sending floating point data
-    static const char floatJsonOjbect[] = "{\"%s\":%2.1f}";
 
     // Variable to hold the "key" string
     char key[16];
