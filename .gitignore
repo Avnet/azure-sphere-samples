@@ -1,0 +1,7 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs
+/Samples/AzureIoT/.vs
+/Samples/WifiSetupAndDeviceControlViaBle/WindowsApp

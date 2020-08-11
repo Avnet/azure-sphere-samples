@@ -488,8 +488,7 @@ static void ConnectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result,
     Log_Debug("Azure IoT connection status: %s\n", GetReasonString(reason));
     if (iothubAuthenticated) {
         // Send static device twin properties when connection is established
-        TwinReportState(
-            "{\"manufacturer\":\"Microsoft\",\"model\":\"Azure Sphere Sample Device\"}");
+        TwinReportState("{\"manufacturer\":\"Avnet\",\"model\":\"Azure Sphere POC Device\"}");
     }
 }
 
