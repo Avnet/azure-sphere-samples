@@ -46,6 +46,7 @@
 #include <applibs/gpio.h>
 #include <applibs/storage.h>
 #include <applibs/eventloop.h>
+#include <applibs/uart.h>
 
 // The following #include imports a "sample appliance" definition. This app comes with multiple
 // implementations of the sample appliance, each in a separate directory, which allow the code to
@@ -103,6 +104,11 @@ typedef enum {
     ExitCode_Validate_DeviceId = 15,
 
     ExitCode_InterfaceConnectionStatus_Failed = 16,
+
+    ExitCode_Init_UartOpen = 17,
+    ExitCode_Init_RegisterIo = 18,
+    ExitCode_UartEvent_Read = 19,
+    ExitCode_SendMessage_Write = 20,
 } ExitCode;
 
 static volatile sig_atomic_t exitCode = ExitCode_Success;
@@ -140,6 +146,8 @@ static void ReportedStateCallback(int result, void *context);
 static int DeviceMethodCallback(const char *methodName, const unsigned char *payload,
                                 size_t payloadSize, unsigned char **response, size_t *responseSize,
                                 void *userContextCallback);
+static void UartEventHandler(EventLoop *el, int fd, EventLoop_IoEvents events, void *context);
+static void SendUartMessage(int uartFd, const char *dataToSend);
 static const char *GetReasonString(IOTHUB_CLIENT_CONNECTION_STATUS_REASON reason);
 static const char *GetAzureSphereProvisioningResultString(
     AZURE_SPHERE_PROV_RETURN_VALUE provisioningResult);
@@ -164,11 +172,15 @@ static void ClosePeripheralsAndHandlers(void);
 // Button
 static int sendMessageButtonGpioFd = -1;
 
+// UART
+static int uartFd = -1;
+
 // LED
 static int deviceTwinStatusLedGpioFd = -1;
 
 // Timer / polling
 static EventLoop *eventLoop = NULL;
+static EventRegistration *uartEventReg = NULL;
 static EventLoopTimer *buttonPollTimer = NULL;
 static EventLoopTimer *azureTimer = NULL;
 
@@ -249,6 +261,7 @@ static void ButtonPollTimerEventHandler(EventLoopTimer *timer)
 
     if (IsButtonPressed(sendMessageButtonGpioFd, &sendMessageButtonState)) {
         SendTelemetry("{\"ButtonPress\" : \"True\"}");
+        SendUartMessage(uartFd, "Hello world!\n");
     }
 }
 
@@ -421,6 +434,21 @@ static ExitCode InitPeripheralsAndHandlers(void)
         return ExitCode_Init_TwinStatusLed;
     }
 
+    // Create a UART_Config object, open the UART and set up UART event handler
+    UART_Config uartConfig;
+    UART_InitConfig(&uartConfig);
+    uartConfig.baudRate = 115200;
+    uartConfig.flowControl = UART_FlowControl_None;
+    uartFd = UART_Open(SAMPLE_UART_LOOPBACK, &uartConfig);
+    if (uartFd == -1) {
+        Log_Debug("ERROR: Could not open UART: %s (%d).\n", strerror(errno), errno);
+        return ExitCode_Init_UartOpen;
+    }
+    uartEventReg = EventLoop_RegisterIo(eventLoop, uartFd, EventLoop_Input, UartEventHandler, NULL);
+    if (uartEventReg == NULL) {
+        return ExitCode_Init_RegisterIo;
+    }
+
     // Set up a timer to poll for button events.
     static const struct timespec buttonPressCheckPeriod = {.tv_sec = 0, .tv_nsec = 1000 * 1000};
     buttonPollTimer = CreateEventLoopPeriodicTimer(eventLoop, &ButtonPollTimerEventHandler,
@@ -463,6 +491,7 @@ static void ClosePeripheralsAndHandlers(void)
     DisposeEventLoopTimer(buttonPollTimer);
     DisposeEventLoopTimer(azureTimer);
     EventLoop_Close(eventLoop);
+    EventLoop_UnregisterIo(eventLoop, uartEventReg);
 
     Log_Debug("Closing file descriptors\n");
 
@@ -470,7 +499,8 @@ static void ClosePeripheralsAndHandlers(void)
     if (deviceTwinStatusLedGpioFd >= 0) {
         GPIO_SetValue(deviceTwinStatusLedGpioFd, GPIO_Value_High);
     }
-
+    
+    CloseFdAndPrintError(uartFd, "Uart");
     CloseFdAndPrintError(sendMessageButtonGpioFd, "SendMessageButton");
     CloseFdAndPrintError(deviceTwinStatusLedGpioFd, "StatusLed");
 }
@@ -881,4 +911,59 @@ static bool IsButtonPressed(int fd, GPIO_Value_Type *oldState)
     }
 
     return isButtonPressed;
+}
+
+/// <summary>
+///     Handle UART event: if there is incoming data, print it.
+///     This satisfies the EventLoopIoCallback signature.
+/// </summary>
+static void UartEventHandler(EventLoop *el, int fd, EventLoop_IoEvents events, void *context)
+{
+    const size_t receiveBufferSize = 256;
+    uint8_t receiveBuffer[receiveBufferSize + 1]; // allow extra byte for string termination
+    ssize_t bytesRead;
+
+    // Read incoming UART data. It is expected behavior that messages may be received in multiple
+    // partial chunks.
+    bytesRead = read(uartFd, receiveBuffer, receiveBufferSize);
+    if (bytesRead == -1) {
+        Log_Debug("ERROR: Could not read UART: %s (%d).\n", strerror(errno), errno);
+        exitCode = ExitCode_UartEvent_Read;
+        return;
+    }
+
+    if (bytesRead > 0) {
+        // Null terminate the buffer to make it a valid string, and print it
+        receiveBuffer[bytesRead] = 0;
+        Log_Debug("UART received %d bytes: '%s'.\n", bytesRead, (char *)receiveBuffer);
+    }
+}
+
+/// <summary>
+///     Helper function to send a fixed message via the given UART.
+/// </summary>
+/// <param name="uartFd">The open file descriptor of the UART to write to</param>
+/// <param name="dataToSend">The data to send over the UART</param>
+static void SendUartMessage(int uartFd, const char *dataToSend)
+{
+    size_t totalBytesSent = 0;
+    size_t totalBytesToSend = strlen(dataToSend);
+    int sendIterations = 0;
+    while (totalBytesSent < totalBytesToSend) {
+        sendIterations++;
+
+        // Send as much of the remaining data as possible
+        size_t bytesLeftToSend = totalBytesToSend - totalBytesSent;
+        const char *remainingMessageToSend = dataToSend + totalBytesSent;
+        ssize_t bytesSent = write(uartFd, remainingMessageToSend, bytesLeftToSend);
+        if (bytesSent == -1) {
+            Log_Debug("ERROR: Could not write to UART: %s (%d).\n", strerror(errno), errno);
+            exitCode = ExitCode_SendMessage_Write;
+            return;
+        }
+
+        totalBytesSent += (size_t)bytesSent;
+    }
+
+    Log_Debug("Sent %zu bytes over UART in %d calls.\n", totalBytesSent, sendIterations);
 }
