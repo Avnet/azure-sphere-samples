@@ -60,7 +60,7 @@
 // azsphere_target_hardware_definition to "HardwareDefinitions/avnet_mt3620_sk".
 //
 // See https://aka.ms/AzureSphereHardwareDefinitions for more details.
-#include <hw/sample_appliance.h>
+#include <hw/avnet_g100.h>
 
 #include "eventloop_timer_utilities.h"
 
@@ -406,7 +406,7 @@ static ExitCode InitPeripheralsAndHandlers(void)
     // SAMPLE_LED is used to show Device Twin settings state
     Log_Debug("Opening SAMPLE_LED as output.\n");
     deviceTwinStatusLedGpioFd =
-        GPIO_OpenAsOutput(SAMPLE_LED, GPIO_OutputMode_PushPull, GPIO_Value_High);
+        GPIO_OpenAsOutput(LED_1, GPIO_OutputMode_PushPull, GPIO_Value_High);
     if (deviceTwinStatusLedGpioFd == -1) {
         Log_Debug("ERROR: Could not open SAMPLE_LED: %s (%d).\n", strerror(errno), errno);
         return ExitCode_Init_TwinStatusLed;
@@ -417,7 +417,7 @@ static ExitCode InitPeripheralsAndHandlers(void)
     UART_InitConfig(&uartConfig);
     uartConfig.baudRate = 115200;
     uartConfig.flowControl = UART_FlowControl_None;
-    uartFd = UART_Open(SAMPLE_UART_LOOPBACK, &uartConfig);
+    uartFd = UART_Open(EXTERNAL_UART, &uartConfig);
     if (uartFd == -1) {
         Log_Debug("ERROR: Could not open UART: %s (%d).\n", strerror(errno), errno);
         return ExitCode_Init_UartOpen;
