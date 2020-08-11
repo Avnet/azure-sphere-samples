@@ -6,7 +6,7 @@
   "CmdArgs": [ "--ConnectionType", "DPS", "--ScopeID", "0ne0008CB04" ],
   "Capabilities": {
     "AllowedConnections": [ "global.azure-devices-provisioning.net", "BW-IoTHub.azure-devices.net" ],
-    "Gpio": [ "$LED_1" ],
+    "Gpio": [ "$LED_1", "$LED_2", "$LED_3" ],
     "Uart": [ "$EXTERNAL_UART" ],
     "DeviceAuthentication": "8d34f65c-532e-4dcf-a1d6-3e811c1e5c68"
   },

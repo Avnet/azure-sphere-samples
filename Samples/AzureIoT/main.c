@@ -92,7 +92,7 @@ typedef enum {
     ExitCode_Init_EventLoop = 5,
     ExitCode_Init_MessageButton = 6,
     ExitCode_Init_OrientationButton = 7,
-    ExitCode_Init_TwinStatusLed = 8,
+    ExitCode_Init_StatusLeds = 8,
     ExitCode_init_UartTxTimer = 9,
     ExitCode_Init_AzureTimer = 10,
 
@@ -172,8 +172,14 @@ static void parseAndSendToAzure(char *);
 // UART
 static int uartFd = -1;
 
-// LED
-static int deviceTwinStatusLedGpioFd = -1;
+#define RGB_NUM_LEDS 3
+//  Guardian LEDs
+//  Guardian has 3 independent LEDs mapped to the following MT3620 Module I/Os
+//  LED_1 (Silkscreen Label 1) - AVNET_AESMS_PIN11_GPIO8 on GPIO8
+//  LED_2 (Silkscreen Label 2)- AVNET_AESMS_PIN12_GPIO9 on GPIO9
+//  LED_3 (Silkscreen Label 3)- AVNET_AESMS_PIN13_GPIO10 on GPIO10
+static int gpioConnectionStateLedFds[RGB_NUM_LEDS] = {-1, -1, -1};
+static GPIO_Id gpioConnectionStateLeds[RGB_NUM_LEDS] = {LED_1, LED_2, LED_3};
 
 // Timer / polling
 static EventLoop *eventLoop = NULL;
@@ -198,6 +204,48 @@ static const char *cmdLineArgsUsageText =
     "DPS connection type: \" CmdArgs \": [\"--ConnectionType DPS\", \"--ScopeID <scope_id>\"]\n"
     "Direction connection type: \" CmdArgs \": [\" --ConnectionType Direct\", "
     "\"--Hostname <azureiothub_hostname>\", \"--DeviceID <device_id>\"]\n";
+
+#define RGB_LED1_INDEX 0
+#define RGB_LED2_INDEX 1
+#define RGB_LED3_INDEX 2
+
+// Define which LED to light up for each case
+typedef enum {
+    RGB_No_Connections = 0b000,
+    RGB_No_Network = 0b001,        // No WiFi connection
+    RGB_Network_Connected = 0b010, // Connected to Azure, not IoT Hub
+    RGB_IoT_Hub_Connected = 0b100, // Connected to IoT Hub
+} RGB_Status;
+
+// Using the bits set in networkStatus, turn on/off the status LEDs
+void setConnectionStatusLed(RGB_Status networkStatus)
+{
+    GPIO_SetValue(gpioConnectionStateLedFds[RGB_LED1_INDEX],
+                  (networkStatus & (1 << RGB_LED1_INDEX)) ? GPIO_Value_Low : GPIO_Value_High);
+    GPIO_SetValue(gpioConnectionStateLedFds[RGB_LED2_INDEX],
+                  (networkStatus & (1 << RGB_LED2_INDEX)) ? GPIO_Value_Low : GPIO_Value_High);
+    GPIO_SetValue(gpioConnectionStateLedFds[RGB_LED3_INDEX],
+                  (networkStatus & (1 << RGB_LED3_INDEX)) ? GPIO_Value_Low : GPIO_Value_High);
+}
+
+// Determine the network status and call the routine to set the status LEDs
+void updateConnectionStatusLed(void)
+{
+    RGB_Status networkStatus;
+    bool bIsNetworkReady = false;
+
+    if (Networking_IsNetworkingReady(&bIsNetworkReady) < 0) {
+        networkStatus = RGB_No_Connections; // network error
+    } else {
+        networkStatus = !bIsNetworkReady ? RGB_No_Network // no Network, No WiFi
+                                         : (iothubAuthenticated
+                                                ? RGB_IoT_Hub_Connected   // IoT hub connected
+                                                : RGB_Network_Connected); // only Network connected
+    }
+
+    // Set the LEDs based on the current status
+    setConnectionStatusLed(networkStatus);
+}
 
 /// <summary>
 ///     Signal handler for termination requests. This handler must be async-signal-safe.
@@ -271,6 +319,9 @@ static void AzureTimerEventHandler(EventLoopTimer *timer)
         return;
     }
 
+    // Keep the status LEDs updated
+    updateConnectionStatusLed();
+
     // Check whether the device is connected to the internet.
     Networking_InterfaceConnectionStatus status;
     if (Networking_GetInterfaceConnectionStatus(NetworkInterface, &status) == 0) {
@@ -287,6 +338,7 @@ static void AzureTimerEventHandler(EventLoopTimer *timer)
         }
     }
 
+    // Make sure we're connected to the IoT Hub
     if (iothubAuthenticated) {
         IoTHubDeviceClient_LL_DoWork(iothubClientHandle);
     }
@@ -408,13 +460,14 @@ static ExitCode InitPeripheralsAndHandlers(void)
         return ExitCode_Init_EventLoop;
     }
 
-    // SAMPLE_LED is used to show Device Twin settings state
-    Log_Debug("Opening SAMPLE_LED as output.\n");
-    deviceTwinStatusLedGpioFd =
-        GPIO_OpenAsOutput(LED_1, GPIO_OutputMode_PushPull, GPIO_Value_High);
-    if (deviceTwinStatusLedGpioFd == -1) {
-        Log_Debug("ERROR: Could not open SAMPLE_LED: %s (%d).\n", strerror(errno), errno);
-        return ExitCode_Init_TwinStatusLed;
+	// Initailize the user LED FDs, 
+    for (int i = 0; i < RGB_NUM_LEDS; i++) {
+        gpioConnectionStateLedFds[i] = GPIO_OpenAsOutput(gpioConnectionStateLeds[i],
+                                                         GPIO_OutputMode_PushPull, GPIO_Value_High);
+        if (gpioConnectionStateLedFds[i] < 0) {
+            Log_Debug("ERROR: Could not open LED GPIO: %s (%d).\n", strerror(errno), errno);
+            return ExitCode_Init_StatusLeds;
+        }
     }
 
     // Create a UART_Config object, open the UART and set up UART event handler
@@ -478,13 +531,15 @@ static void ClosePeripheralsAndHandlers(void)
 
     Log_Debug("Closing file descriptors\n");
 
-    // Leave the LEDs off
-    if (deviceTwinStatusLedGpioFd >= 0) {
-        GPIO_SetValue(deviceTwinStatusLedGpioFd, GPIO_Value_High);
-    }
-    
+	// Turn the WiFi connection status LEDs off
+    setConnectionStatusLed(RGB_No_Connections);
+
+    // Close the status LED file descriptors
+    for (int i = 0; i < RGB_NUM_LEDS; i++) {
+        CloseFdAndPrintError(gpioConnectionStateLedFds[i], "ConnectionStatusLED");
+    }    
+
     CloseFdAndPrintError(uartFd, "Uart");
-    CloseFdAndPrintError(deviceTwinStatusLedGpioFd, "StatusLed");
 }
 
 /// <summary>
@@ -502,6 +557,9 @@ static void ConnectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result,
         // Send static device twin properties when connection is established
         TwinReportState("{\"manufacturer\":\"Avnet\",\"model\":\"Azure Sphere POC Device\"}");
     }
+
+    // Since the connection state just changed, update the status LEDs
+    updateConnectionStatusLed();
 }
 
 /// <summary>
@@ -676,7 +734,7 @@ static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsig
         desiredProperties = rootObject;
     }
 
-    // The desired properties should have a "StatusLED" object
+/*    // The desired properties should have a "StatusLED" object
     int statusLedValue = json_object_dotget_boolean(desiredProperties, "StatusLED");
     if (statusLedValue != -1) {
         statusLedOn = statusLedValue == 1;
@@ -689,7 +747,7 @@ static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsig
     } else {
         TwinReportState("{\"StatusLED\":false}");
     }
-
+*/
 cleanup:
     // Release the allocated memory.
     json_value_free(rootProperties);
