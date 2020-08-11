@@ -109,6 +109,7 @@ typedef enum {
     ExitCode_Init_RegisterIo = 18,
     ExitCode_UartEvent_Read = 19,
     ExitCode_SendMessage_Write = 20,
+    ExitCode_UartBuffer_Overflow = 21,
 } ExitCode;
 
 static volatile sig_atomic_t exitCode = ExitCode_Success;
@@ -253,7 +254,10 @@ static void uartTxMsgEventHandler(EventLoopTimer *timer)
         return;
     }
 
-        SendUartMessage(uartFd, "Hello world!\n");
+    // SendUartMessage(uartFd, "IpAddressCmd\n");
+    SendUartMessage(uartFd, "ReadCPUTempCmd\n");
+    // SendUartMessage(uartFd, "RebootCmd\n");
+    // SendUartMessage(uartFd, "PowerdownCmd\n");
 }
 
 /// <summary>
@@ -873,24 +877,134 @@ void SendSimulatedTelemetry(void)
 /// </summary>
 static void UartEventHandler(EventLoop *el, int fd, EventLoop_IoEvents events, void *context)
 {
-    const size_t receiveBufferSize = 256;
-    uint8_t receiveBuffer[receiveBufferSize + 1]; // allow extra byte for string termination
+    // Uncomment for circular queue debug
+    //#define ENABLE_UART_DEBUG
+
+#define RX_BUFFER_SIZE 128
+#define DATA_BUFFER_SIZE 128
+#define DATA_BUFFER_MASK (DATA_BUFFER_SIZE - 1)
+
+    // Buffer for incomming data
+    uint8_t receiveBuffer[RX_BUFFER_SIZE];
+
+    // Buffer for persistant data.  Sometimes we don't receive all the
+    // data at once so we need to store it in a persistant buffer before processing.
+    static uint8_t dataBuffer[DATA_BUFFER_SIZE];
+
+    // The index into the dataBuffer to write the next piece of RX data
+    static int nextData = 0;
+
+    // The index to the head of the valid/current data, this is the beginning
+    // of the next response
+    static int currentData = 0;
+
+    // The number of btyes in the dataBuffer, used to make sure we don't overflow the buffer
+    static int bytesInBuffer = 0;
+
     ssize_t bytesRead;
 
-    // Read incoming UART data. It is expected behavior that messages may be received in multiple
-    // partial chunks.
-    bytesRead = read(uartFd, receiveBuffer, receiveBufferSize);
-    if (bytesRead == -1) {
-        Log_Debug("ERROR: Could not read UART: %s (%d).\n", strerror(errno), errno);
-        exitCode = ExitCode_UartEvent_Read;
+    // Read the uart
+    bytesRead = read(uartFd, receiveBuffer, RX_BUFFER_SIZE);
+
+#ifdef ENABLE_UART_DEBUG
+    Log_Debug("Enter: bytesInBuffer: %d\n", bytesInBuffer);
+    Log_Debug("Enter: bytesRead: %d\n", bytesRead);
+    Log_Debug("Enter: nextData: %d\n", nextData);
+    Log_Debug("Enter: currentData: %d\n", currentData);
+#endif
+
+    // Check to make sure we're not going to over run the buffer
+    if ((bytesInBuffer + bytesRead) > DATA_BUFFER_SIZE) {
+
+        // The buffer is full, attempt to recover by emptying the buffer!
+        Log_Debug("Buffer Full!  Purging\n");
+
+        nextData = 0;
+        currentData = 0;
+        bytesInBuffer = 0;
         return;
     }
 
-    if (bytesRead > 0) {
-        // Null terminate the buffer to make it a valid string, and print it
-        receiveBuffer[bytesRead] = 0;
-        Log_Debug("UART received %d bytes: '%s'.\n", bytesRead, (char *)receiveBuffer);
+    // Move data from the receive Buffer into the Data Buffer.  We do this
+    // because sometimes we don't receive the entire message in one uart read.
+    for (int i = 0; i < bytesRead; i++) {
+
+        // Copy the data into the dataBuffer
+        dataBuffer[nextData] = receiveBuffer[i];
+#ifdef ENABLE_UART_DEBUG
+        Log_Debug("dataBuffer[%d] = %c\n", nextData, receiveBuffer[i]);
+#endif
+        // Increment the bytes count
+        bytesInBuffer++;
+
+        // Increment the nextData pointer and adjust for wrap around
+        nextData = ((nextData + 1) & DATA_BUFFER_MASK);
     }
+
+    // Check to see if we can find a response.  A response will end with a '\n' character
+    // Start looking at the beginning of the first non-processed message @ currentData
+
+    // Use a temp buffer pointer in case we don't find a message
+    int tempCurrentData = currentData;
+
+    // Iterate over the valid data from currentData to nextData locations in the buffer
+    while (tempCurrentData != nextData) {
+        if (dataBuffer[tempCurrentData] == '\n') {
+
+#ifdef ENABLE_UART_DEBUG
+            // Found a message from index currentData to tempNextData
+            Log_Debug("Found message from %d to %d\n", currentData, tempCurrentData);
+#endif
+            // Determine the size of the new message we just found, account for the case
+            // where the message wraps from the end of the buffer to the beginning
+            int responseMsgSize = 0;
+            if (currentData > tempCurrentData) {
+                responseMsgSize = (DATA_BUFFER_SIZE - currentData) + tempCurrentData;
+            } else {
+                responseMsgSize = tempCurrentData - currentData;
+            }
+
+            // Declare a new buffer to hold the response we just found
+            uint8_t responseMsg[responseMsgSize + 1];
+
+            // Copy the response from the buffer, do it one byte at a time
+            // since the message may wrap in the data buffer
+            for (int j = 0; j < responseMsgSize; j++) {
+                responseMsg[j] = dataBuffer[(currentData + j) & DATA_BUFFER_MASK];
+                bytesInBuffer--;
+            }
+
+            // Decrement the bytesInBuffer one more time to account for the '\n' charcter
+            bytesInBuffer--;
+
+            // Null terminate the message and print it out to debug
+            responseMsg[responseMsgSize] = '\0';
+            Log_Debug("RX: %s\n", responseMsg);
+
+            // Update the currentData index and adjust for the '\n' character
+            currentData = tempCurrentData + 1;
+            // Overwrite the '\n' character so we don't accidently find it and think
+            // we found a new mssage
+            dataBuffer[tempCurrentData] = '\0';
+        }
+
+        else if (tempCurrentData == nextData) {
+
+#ifdef ENABLE_UART_DEBUG
+            Log_Debug("No message found, exiting . . . \n");
+#endif
+            return;
+        }
+
+        // Increment the temp CurrentData pointer and let it wrap if needed
+        tempCurrentData = ((tempCurrentData + 1) & DATA_BUFFER_MASK);
+    }
+
+#ifdef ENABLE_UART_DEBUG
+    Log_Debug("Exit: nextData: %d\n", nextData);
+    Log_Debug("Exit: currentData: %d\n", currentData);
+    Log_Debug("Exit: bytesInBuffer: %d\n", bytesInBuffer);
+#endif
 }
 
 /// <summary>
