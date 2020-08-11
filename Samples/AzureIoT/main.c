@@ -85,7 +85,7 @@ typedef enum {
 
     ExitCode_Main_EventLoopFail = 2,
 
-    ExitCode_UartTimer_Consume = 3,
+    ExitCode_IpAddressTimer_Consume = 3,
 
     ExitCode_AzureTimer_Consume = 4,
 
@@ -110,6 +110,11 @@ typedef enum {
     ExitCode_UartEvent_Read = 19,
     ExitCode_SendMessage_Write = 20,
     ExitCode_UartBuffer_Overflow = 21,
+    ExitCode_ReadTemperatureTimer_Consume = 22,
+    ExitCode_Init_Uart_CpuTemp_Timer = 23,
+    ExitCode_Init_Uart_IpAddress_Timer = 24
+
+
 } ExitCode;
 
 static volatile sig_atomic_t exitCode = ExitCode_Success;
@@ -154,7 +159,8 @@ static const char *GetAzureSphereProvisioningResultString(
     AZURE_SPHERE_PROV_RETURN_VALUE provisioningResult);
 static void SendTelemetry(const char *jsonMessage);
 static void SetupAzureClient(void);
-static void uartTxMsgEventHandler(EventLoopTimer *timer);
+static void uartTxCpuTempEventHandler(EventLoopTimer *timer);
+static void uartTxIpAddressEventHandler(EventLoopTimer *timer);
 static void AzureTimerEventHandler(EventLoopTimer *timer);
 static ExitCode ValidateUserConfiguration(void);
 static void ParseCommandLineArguments(int argc, char *argv[]);
@@ -184,7 +190,8 @@ static GPIO_Id gpioConnectionStateLeds[RGB_NUM_LEDS] = {LED_1, LED_2, LED_3};
 // Timer / polling
 static EventLoop *eventLoop = NULL;
 static EventRegistration *uartEventReg = NULL;
-static EventLoopTimer *txUartMsgTimer = NULL;
+static EventLoopTimer *txUartCpuTempMsgTimer = NULL;
+static EventLoopTimer *txUartIpAddressMsgTimer = NULL;
 static EventLoopTimer *azureTimer = NULL;
 
 // Azure IoT poll periods
@@ -193,11 +200,6 @@ static const int AzureIoTMinReconnectPeriodSeconds = 60;      // back off when r
 static const int AzureIoTMaxReconnectPeriodSeconds = 10 * 60; // back off limit
 
 static int azureIoTPollPeriodSeconds = -1;
-
-
-// State variables
-
-static bool statusLedOn = false;
 
 // Usage text for command line arguments in application manifest.
 static const char *cmdLineArgsUsageText =
@@ -294,19 +296,48 @@ int main(int argc, char *argv[])
 }
 
 /// <summary>
-///     Transmit UART message timer event
+///     Uart Ip Address timer event:  Send a read IP address command to the Pi
 /// </summary>
-static void uartTxMsgEventHandler(EventLoopTimer *timer)
+static void uartTxIpAddressEventHandler(EventLoopTimer *timer)
 {
+
+    static int count = 0;
+
     if (ConsumeEventLoopTimerEvent(timer) != 0) {
-        exitCode = ExitCode_UartTimer_Consume;
+        exitCode = ExitCode_IpAddressTimer_Consume;
         return;
     }
 
-    // SendUartMessage(uartFd, "IpAddressCmd\n");
+    // Send a UART command to read the IP Address' from the device
+    SendUartMessage(uartFd, "IpAddressCmd\n");
+
+    // Throttle back the read period after 5 reads
+    if (++count == 5) {
+
+        // Update the timer to fire every 120 seconds
+        static const struct timespec txUartIpAddressPeriod = {.tv_sec = 120, .tv_nsec = 1000 * 0};
+        SetEventLoopTimerPeriod(txUartIpAddressMsgTimer, &txUartIpAddressPeriod);
+    }
+
+    if (count > 5) {
+        // Fix the count at > 5 so we don't have to worry about overflow
+        count = 6;
+    }
+}
+
+/// <summary>
+///     Uart CPU Temperature timer event:  Send a read CPU temperature command to the Pi
+/// </summary>
+static void uartTxCpuTempEventHandler(EventLoopTimer *timer)
+{
+
+    if (ConsumeEventLoopTimerEvent(timer) != 0) {
+        exitCode = ExitCode_ReadTemperatureTimer_Consume;
+        return;
+    }
+
+    // Send a UART command to read the CPU temperature from the device
     SendUartMessage(uartFd, "ReadCPUTempCmd\n");
-    // SendUartMessage(uartFd, "RebootCmd\n");
-    // SendUartMessage(uartFd, "PowerdownCmd\n");
 }
 
 /// <summary>
@@ -485,12 +516,20 @@ static ExitCode InitPeripheralsAndHandlers(void)
         return ExitCode_Init_RegisterIo;
     }
 
-    // Set up a timer to periodically send UART messages
-    static const struct timespec txUartPeriod = {.tv_sec = 10, .tv_nsec = 1000 * 1000};
-    txUartMsgTimer =
-        CreateEventLoopPeriodicTimer(eventLoop, &uartTxMsgEventHandler, &txUartPeriod);
-    if (txUartMsgTimer == NULL) {
-        return ExitCode_init_UartTxTimer;
+    // Set up a timer to periodically send UART ReadCPUTempCmd messages.
+    static const struct timespec txUartCpuTempPeriod = {.tv_sec = 10, .tv_nsec = 1000 * 0};
+    txUartCpuTempMsgTimer =
+        CreateEventLoopPeriodicTimer(eventLoop, &uartTxCpuTempEventHandler, &txUartCpuTempPeriod);
+    if (txUartCpuTempMsgTimer == NULL) {
+        return ExitCode_Init_Uart_CpuTemp_Timer;
+    }
+
+    // Set up a timer to periodically send UART ReadCPUTempCmd messages.
+    static const struct timespec txUartIpAddressPeriod = {.tv_sec = 5, .tv_nsec = 1000 * 0};
+    txUartIpAddressMsgTimer = CreateEventLoopPeriodicTimer(eventLoop, &uartTxIpAddressEventHandler,
+                                                           &txUartIpAddressPeriod);
+    if (txUartIpAddressMsgTimer == NULL) {
+        return ExitCode_Init_Uart_IpAddress_Timer;
     }
 
     azureIoTPollPeriodSeconds = AzureIoTDefaultPollPeriodSeconds;
@@ -500,6 +539,11 @@ static ExitCode InitPeripheralsAndHandlers(void)
     if (azureTimer == NULL) {
         return ExitCode_Init_AzureTimer;
     }
+
+    // Send a UART command to read the CPU temperature
+    // We've seen some initial garbage data from the UART on the first call
+    // This call will flush out that case, the Pi handles the case without issues
+    SendUartMessage(uartFd, "ReadCPUTempCmd\n");
 
     return ExitCode_Success;
 }
@@ -524,7 +568,8 @@ static void CloseFdAndPrintError(int fd, const char *fdName)
 /// </summary>
 static void ClosePeripheralsAndHandlers(void)
 {
-    DisposeEventLoopTimer(txUartMsgTimer);
+    DisposeEventLoopTimer(txUartCpuTempMsgTimer);
+    DisposeEventLoopTimer(txUartIpAddressMsgTimer);
     DisposeEventLoopTimer(azureTimer);
     EventLoop_Close(eventLoop);
     EventLoop_UnregisterIo(eventLoop, uartEventReg);
