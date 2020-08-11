@@ -743,6 +743,11 @@ static bool SetupAzureIoTHubClientWithDps(void)
 
 /// <summary>
 ///     Callback invoked when a Direct Method is received from Azure IoT Hub.
+///     There are three direct methods supported in this application
+///     1. TriggerAlarm 
+///     2. RebootPi
+///     3. PowerDownPi
+///     Neither direct method requires any arguments
 /// </summary>
 static int DeviceMethodCallback(const char *methodName, const unsigned char *payload,
                                 size_t payloadSize, unsigned char **response, size_t *responseSize,
@@ -758,7 +763,22 @@ static int DeviceMethodCallback(const char *methodName, const unsigned char *pay
         Log_Debug("  ----- ALARM TRIGGERED! -----\n");
         responseString = "\"Alarm Triggered\""; // must be a JSON string (in quotes)
         result = 200;
-    } else {
+    } 
+    else if(strcmp("RebootPi", methodName) == 0) {
+        // Output alarm using Log_Debug
+        Log_Debug("Send a Reboot command to the Pi\n");
+        SendUartMessage(uartFd, "RebootCmd\n");
+        responseString = "\"Reboot Message Sent do Pi!\""; // must be a JSON string (in quotes)
+        result = 200;
+    }
+    else if(strcmp("PowerDownPi", methodName) == 0) {
+        // Output alarm using Log_Debug
+        Log_Debug("Send a Power Down command to the Pi\n");
+        SendUartMessage(uartFd, "PowerdownCmd\n");
+        responseString = "\"Power Down Message Sent to Pi!\""; // must be a JSON string (in quotes)
+        result = 200;
+    }
+    else {
         // All other method names are ignored
         responseString = "{}";
         result = -1;
