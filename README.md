@@ -2,6 +2,10 @@
 # Azure Sphere Samples
 This repository contains samples for the [Azure Sphere platform](https://www.microsoft.com/azure-sphere/).
 
+Note: This IoTConnect branch adds functionality for Azure Sphere applications to interact with Avnet's IoTConnect cloud
+platform without using one of the IoTConnect SDKs.  It builds upon the AzureIoT example which contains all the cloud
+connectivity peices you would need for a connected device.
+
 Please also see the Codethink, MediaTek, and Azure RTOS repositories for more sample applications for the MT3620
 real-time cores.
 
