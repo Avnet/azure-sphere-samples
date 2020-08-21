@@ -43,6 +43,7 @@
 #include <applibs/gpio.h>
 #include <applibs/log.h>
 #include <applibs/networking.h>
+#include <applibs/storage.h>
 
 // The following #include imports a "sample appliance" definition. This app comes with multiple
 // implementations of the sample appliance, each in a separate directory, which allow the code to
@@ -101,6 +102,13 @@ typedef enum {
     ExitCode_Validate_DeviceId = 15,
 
     ExitCode_InterfaceConnectionStatus_Failed = 16,
+
+    // Mutable Storage exit codes
+    ExitCode_WriteFile_OpenMutableFile = 17,
+    ExitCode_WriteFile_Write = 18,
+    ExitCode_ReadFile_OpenMutableFile = 19,
+    ExitCode_ReadFile_Read = 20,
+    ExitCode_SendTelemetryMemoryError = 21,
 } ExitCode;
 
 static volatile sig_atomic_t exitCode = ExitCode_Success;
@@ -133,12 +141,37 @@ static char *deviceId = NULL;                                     // Device ID m
 static ConnectionType connectionType = ConnectionType_NotDefined; // Type of connection to use.
 static IoTHubClientAuthenticationState iotHubClientAuthenticationState =
     IoTHubClientAuthenticationState_NotAuthenticated; // Authentication state with respect to the
-                                                      // IoT Hub.
+                                                     // IoT Hub.
 
 static IOTHUB_DEVICE_CLIENT_LL_HANDLE iothubClientHandle = NULL;
 static const int deviceIdForDaaCertUsage = 1; // A constant used to direct the IoT SDK to use
                                               // the DAA cert under the hood.
 static const char NetworkInterface[] = "wlan0";
+
+// IoT Connect defines.
+
+// Enable this define to parse all the IoTC parameters.  Otherwise just
+// parse the items needed to function
+//#define PARSE_ALL_IOTC_PARMETERS
+
+#define GUID_LEN 36
+#define SID_LEN 64
+
+#ifdef PARSE_ALL_IOTC_PARMETERS
+static uint8_t ecValue;
+static uint8_t ctValue;
+static uint8_t hasDValue;
+static uint8_t hasAttrValue;
+static uint8_t hasSetValue;
+static uint8_t hasRValue;
+#endif
+static char dtgGUID[GUID_LEN + 1];
+static char gGUID[GUID_LEN + 1];
+static char sidString[SID_LEN + 1];
+
+#define TELEMETRY_BUFFER_SIZE 100
+
+
 
 // Function declarations
 static void SendEventCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result, void *context);
@@ -149,10 +182,13 @@ static void ReportedStateCallback(int result, void *context);
 static int DeviceMethodCallback(const char *methodName, const unsigned char *payload,
                                 size_t payloadSize, unsigned char **response, size_t *responseSize,
                                 void *userContextCallback);
+
+static IOTHUBMESSAGE_DISPOSITION_RESULT receiveMessageCallback(IOTHUB_MESSAGE_HANDLE message, void* context);
+
 static const char *GetReasonString(IOTHUB_CLIENT_CONNECTION_STATUS_REASON reason);
 static const char *GetAzureSphereProvisioningResultString(
     AZURE_SPHERE_PROV_RETURN_VALUE provisioningResult);
-static void SendTelemetry(const char *jsonMessage);
+static void SendTelemetry(const char *jsonMessage, bool IoTCFormat);
 static void SetUpAzureIoTHubClient(void);
 static void SendSimulatedTelemetry(void);
 static void ButtonPollTimerEventHandler(EventLoopTimer *timer);
@@ -163,6 +199,10 @@ static void ParseCommandLineArguments(int argc, char *argv[]);
 static bool SetUpAzureIoTHubClientWithDaa(void);
 static bool SetUpAzureIoTHubClientWithDps(void);
 static bool IsConnectionReadyToSendTelemetry(void);
+
+// Mutable storage functions
+static void WriteSIDToMutableFile(char*);
+static bool ReadSIDFromMutableFile(char*);
 
 // Initialization/Cleanup
 static ExitCode InitPeripheralsAndHandlers(void);
@@ -258,7 +298,7 @@ static void ButtonPollTimerEventHandler(EventLoopTimer *timer)
     }
 
     if (IsButtonPressed(sendMessageButtonGpioFd, &sendMessageButtonState)) {
-        SendTelemetry("{\"ButtonPress\" : \"True\"}");
+        SendTelemetry("{\"ButtonPress\" : \"True\"}", true);
     }
 }
 
@@ -272,7 +312,7 @@ static void AzureTimerEventHandler(EventLoopTimer *timer)
         return;
     }
 
-    // Check whether the device is connected to the internet.
+  // Check whether the device is connected to the internet.
     Networking_InterfaceConnectionStatus status;
     if (Networking_GetInterfaceConnectionStatus(NetworkInterface, &status) == 0) {
         if ((status & Networking_InterfaceConnectionStatus_ConnectedToInternet) &&
@@ -288,15 +328,15 @@ static void AzureTimerEventHandler(EventLoopTimer *timer)
         }
     }
 
-    if (iotHubClientAuthenticationState == IoTHubClientAuthenticationState_Authenticated) {
+     if (iotHubClientAuthenticationState == IoTHubClientAuthenticationState_Authenticated) {
         telemetryCount++;
         if (telemetryCount == AzureIoTPollPeriodsPerTelemetry) {
             telemetryCount = 0;
-            SendSimulatedTelemetry();
+           SendSimulatedTelemetry();
         }
-    }
+     }
 
-    if (iothubClientHandle != NULL) {
+     if (iothubClientHandle != NULL) {
         IoTHubDeviceClient_LL_DoWork(iothubClientHandle);
     }
 }
@@ -506,9 +546,25 @@ static void ConnectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result,
 
     iotHubClientAuthenticationState = IoTHubClientAuthenticationState_Authenticated;
 
-    // Send static device twin properties when connection is established.
-    TwinReportState("{\"manufacturer\":\"Microsoft\",\"model\":\"Azure Sphere Sample Device\"}");
+        // Send static device twin properties when connection is established
+    TwinReportState("{\"manufacturer\":\"Avnet\",\"model\":\"Azure Sphere MT3620 Starter Kit\"}");
+
+    // Read the sid from flash memory.  If we have not written an sid to
+    // memory yet, the sidString variable will be empty and we can still
+    // send it to IoTConnect.
+    ReadSIDFromMutableFile(sidString);
+
+    // Send the IoT Connect hello message to inform the platform that we're on-line!
+    char telemetryBuffer[TELEMETRY_BUFFER_SIZE];
+    int len = snprintf(telemetryBuffer, TELEMETRY_BUFFER_SIZE,
+                       "{\"t\": \"\",\"mt\" : 200,\"sid\" : \"%s\"}", sidString);
+    if (len < 0 || len >= TELEMETRY_BUFFER_SIZE) {
+        Log_Debug("ERROR: Cannot write telemetry to buffer.\n");
+        return;
+    }
+    SendTelemetry(telemetryBuffer, false);
 }
+
 
 /// <summary>
 ///     Sets up the Azure IoT Hub connection (creates the iothubClientHandle)
@@ -564,6 +620,7 @@ static void SetUpAzureIoTHubClient(void)
     IoTHubDeviceClient_LL_SetDeviceMethodCallback(iothubClientHandle, DeviceMethodCallback, NULL);
     IoTHubDeviceClient_LL_SetConnectionStatusCallback(iothubClientHandle, ConnectionStatusCallback,
                                                       NULL);
+    IoTHubDeviceClient_LL_SetMessageCallback(iothubClientHandle, receiveMessageCallback, NULL);
 }
 
 /// <summary>
@@ -775,7 +832,7 @@ static bool IsConnectionReadyToSendTelemetry(void)
             "yet.\n");
         return false;
     }
-
+ 
     if ((status & Networking_InterfaceConnectionStatus_ConnectedToInternet) == 0) {
         Log_Debug(
             "WARNING: Cannot send Azure IoT Hub telemetry because the device is not connected to "
@@ -786,10 +843,12 @@ static bool IsConnectionReadyToSendTelemetry(void)
     return true;
 }
 
-/// <summary>
+    /// <summary>
 ///     Sends telemetry to Azure IoT Hub
+///     If IoTCFormat is true, add the required IoT Connect fields
+///     If IoTCFormat is false, send the message as it's received
 /// </summary>
-static void SendTelemetry(const char *jsonMessage)
+static void SendTelemetry(const char *jsonMessage, bool IoTCFormat)
 {
     if (iotHubClientAuthenticationState != IoTHubClientAuthenticationState_Authenticated) {
         // AzureIoT client is not authenticated. Log a warning and return.
@@ -797,28 +856,87 @@ static void SendTelemetry(const char *jsonMessage)
         return;
     }
 
-    Log_Debug("Sending Azure IoT Hub telemetry: %s.\n", jsonMessage);
+    // Define a pointer to the JSON message to send up.  We use this pointer when we actually send the telemetry
+    // but may change it to point to a modified JSON message if IoTCFormat is true.  Default to the un-modified
+    // message that was passed in.
+    const char* jsonTelemetryMessageToSend = jsonMessage;
+
+    // Define the Json string format for sending telemetry to IoT Connect
+    static const char IoTCTelemetryJson[] = "[{\"sid\":\"%s\",\"dtg\":\"%s\",\"mt\": 0,\"dt\": \"%s\",\"d\": [%s]}]";
+
+    /*
+    [{
+        "sid": "9tAyZNOIWD+1D2Qp785FDsXUmrEnGJntnAvV1uSxKSSRL4ZaLgo5UV1hRY0kTmHg",
+        "dtg" : "00000000-0000-0000-0000-000000000000",
+        "mt" : 0,
+        "dt" : "",                //date time
+        "d" : [{
+            TELEMETRY DATA
+            }]
+    }]
+*/
+
+#define IOTC_OVERHEAD 140
+    
+    // Declare a buffer large enough for the IoTC overhead, plus the passed in JSON telemetry data
+    size_t bufferSize = IOTC_OVERHEAD + strlen(jsonMessage);
+    char* pjsonIoTCBuffer = (char*)malloc(bufferSize);
+
+    if (pjsonIoTCBuffer == NULL) {
+        Log_Debug("ERROR: not enough memory to send telemetry");
+        exitCode = ExitCode_SendTelemetryMemoryError;
+        return;
+    }
+
+    // If we're sending in IoTC format, then build the IoTC message and insert the telemetry JSON
+    if (IoTCFormat) {
+
+        // Generate the required "dt" time string in the correct format
+        time_t now;
+        time(&now);
+        char timeBuffer[sizeof "2020-06-23T15:27:33.0000000Z "];
+        strftime(timeBuffer, sizeof (timeBuffer), "%FT%TZ", gmtime(&now));
+        
+        // strftime has provided the year, month, day, hour, minute and second details.  
+        // Fill in the remaining required time string with ".00000000Z"  We overwite
+        // the 'Z' at the end of the original string but replace it at the end of the
+        // modified string.  Null terminate the string.
+        char timeFiller[] = { ".0000000Z\0" };
+        size_t timeFillerLen = sizeof(timeFiller);
+        strncpy(&timeBuffer[19], timeFiller, timeFillerLen);
+
+        // construct the telemetry message
+        snprintf(pjsonIoTCBuffer, bufferSize, IoTCTelemetryJson, sidString, dtgGUID, timeBuffer, jsonMessage);
+        
+        // Reference the new buffer so it gets sent below in the common code
+        jsonTelemetryMessageToSend = pjsonIoTCBuffer;
+    }
 
     // Check whether the device is connected to the internet.
     if (IsConnectionReadyToSendTelemetry() == false) {
-        return;
+        goto cleanup;
     }
 
-    IOTHUB_MESSAGE_HANDLE messageHandle = IoTHubMessage_CreateFromString(jsonMessage);
+    Log_Debug("Sending Azure IoT Hub telemetry: %s.\n", jsonTelemetryMessageToSend);
+
+    IOTHUB_MESSAGE_HANDLE messageHandle = IoTHubMessage_CreateFromString(jsonTelemetryMessageToSend);
 
     if (messageHandle == 0) {
         Log_Debug("ERROR: unable to create a new IoTHubMessage.\n");
-        return;
+        goto cleanup;
     }
 
     if (IoTHubDeviceClient_LL_SendEventAsync(iothubClientHandle, messageHandle, SendEventCallback,
-                                             /*&callback_param*/ NULL) != IOTHUB_CLIENT_OK) {
+        /*&callback_param*/ NULL) != IOTHUB_CLIENT_OK) {
         Log_Debug("ERROR: failure requesting IoTHubClient to send telemetry event.\n");
-    } else {
+    }
+    else {
         Log_Debug("INFO: IoTHubClient accepted the telemetry event for delivery.\n");
     }
 
+cleanup:
     IoTHubMessage_Destroy(messageHandle);
+    free(pjsonIoTCBuffer);
 }
 
 /// <summary>
@@ -877,7 +995,7 @@ void SendSimulatedTelemetry(void)
         Log_Debug("ERROR: Cannot write telemetry to buffer.\n");
         return;
     }
-    SendTelemetry(telemetryBuffer);
+    SendTelemetry(telemetryBuffer, true);
 }
 
 /// <summary>
@@ -902,3 +1020,259 @@ static bool IsButtonPressed(int fd, GPIO_Value_Type *oldState)
 
     return isButtonPressed;
 }
+
+/// <summary>
+/// Write an character sid string to this application's persistent data file
+/// </summary>
+static void WriteSIDToMutableFile(char* sid)
+{
+
+    int fd = Storage_OpenMutableFile();
+    if (fd == -1) {
+        Log_Debug("ERROR: Could not open mutable file:  %s (%d).\n", strerror(errno), errno);
+        exitCode = ExitCode_WriteFile_OpenMutableFile;
+        return;
+    }
+    ssize_t ret = write(fd, sid, SID_LEN);
+    if (ret == -1) {
+        // If the file has reached the maximum size specified in the application manifest,
+        // then -1 will be returned with errno EDQUOT (122)
+        Log_Debug("ERROR: An error occurred while writing to mutable file:  %s (%d).\n",
+            strerror(errno), errno);
+        exitCode = ExitCode_WriteFile_Write;
+    }
+    else if (ret < SID_LEN) {
+        // For simplicity, this sample logs an error here. In the general case, this should be
+        // handled by retrying the write with the remaining data until all the data has been
+        // written.
+        Log_Debug("ERROR: Only wrote %d of %d bytes requested\n", ret, SID_LEN);
+    }
+    close(fd);
+}
+
+/// <summary>
+/// Read a sid string from this application's persistent data file
+/// </summary>
+/// <returns>
+/// The sid string that was read from the file.  If the file is empty, this returns 0.  If the storage
+/// API fails, this returns -1.
+/// </returns>
+static bool ReadSIDFromMutableFile(char* sid)
+{
+    int fd = Storage_OpenMutableFile();
+    if (fd == -1) {
+        Log_Debug("ERROR: Could not open mutable file:  %s (%d).\n", strerror(errno), errno);
+        exitCode = ExitCode_ReadFile_OpenMutableFile;
+        return false;
+    }
+    
+    ssize_t ret = read(fd, sid, SID_LEN);
+    if (ret == -1) {
+        Log_Debug("ERROR: An error occurred while reading file:  %s (%d).\n", strerror(errno),
+            errno);
+        exitCode = ExitCode_ReadFile_Read;
+    }
+    close(fd);
+
+    if (ret < SID_LEN) {
+        return false;
+    }
+    
+    return true;
+}
+
+/// <summary>
+///     Callback function invoked when a message is received from IoT Hub.
+/// </summary>
+/// <param name="message">The handle of the received message</param>
+/// <param name="context">The user context specified at IoTHubDeviceClient_LL_SetMessageCallback()
+/// invocation time</param>
+/// <returns>Return value to indicates the message procession status (i.e. accepted, rejected,
+/// abandoned)</returns>
+static IOTHUBMESSAGE_DISPOSITION_RESULT receiveMessageCallback(IOTHUB_MESSAGE_HANDLE message,
+    void* context)
+{
+//#define MESSAGE_DEBUG
+
+#ifdef MESSAGE_DEBUG
+    Log_Debug("Received message!\n");
+#endif   
+
+    const unsigned char* buffer = NULL;
+    size_t size = 0;
+    if (IoTHubMessage_GetByteArray(message, &buffer, &size) != IOTHUB_MESSAGE_OK) {
+        Log_Debug("WARNING: failure performing IoTHubMessage_GetByteArray\n");
+        return IOTHUBMESSAGE_REJECTED;
+    }
+
+    // 'buffer' is not zero terminated, so null terminate it.
+    unsigned char* str_msg = (unsigned char*)malloc(size + 1);
+    if (str_msg == NULL) {
+        Log_Debug("ERROR: could not allocate buffer for incoming message\n");
+        abort();
+    }
+    memcpy(str_msg, buffer, size);
+    str_msg[size] = '\0';
+
+#ifdef MESSAGE_DEBUG
+    Log_Debug("INFO: Received message '%s' from IoT Hub\n", str_msg);
+#endif 
+
+    // Process the message.  We're expecting a specific JSON structure from IoT Connect
+    //
+    //{
+    //    "d": {
+    //        "ec": 0,
+    //            "ct" : 200,
+    //            "dtg" : "b3a7d542-20ad-4397-abf3-5d7ec539fba6",  // A GUID
+    //            "sid" : "9tAyZNOIWD+1D2Qp785FDsXUmrEnGJntnAvV1uSxKSSRL4ZaLgo5UV1hRY0kTmHg", // 64 character string
+    //            "g" : "c2fbe330-8787-4dbd-87e4-9ecf58c41f6a", // A GUID
+    //            has":{
+    //            "d" : 1,
+    //          "attr" : 1,
+    //          "set" : 1,
+    //          "r" : 1
+    //         }
+    //      }
+    //  }
+    // 
+    // The code below will drill into the structure and pull out each piece of data and store it into variables
+   
+    // Using the mesage string get a pointer to the rootMessage
+    JSON_Value* rootMessage = NULL;
+    rootMessage = json_parse_string(str_msg);
+    if (rootMessage == NULL) {
+        Log_Debug("WARNING: Cannot parse the string as JSON content.\n");
+        goto cleanup;
+    }
+
+    // Using the rootMessage pointer get a pointer to the rootObject
+    JSON_Object* rootObject = json_value_get_object(rootMessage);
+
+    // Using the root object get a pointer to the d object
+    JSON_Object* dProperties = json_object_dotget_object(rootObject, "d");
+    if (dProperties == NULL) {
+        Log_Debug("dProperties == NULL\n");
+    }
+
+#ifdef PARSE_ALL_IOTC_PARMETERS
+    // The d properties should have a "ec" key
+    if (json_object_has_value(dProperties, "ec") != 0){
+        ecValue = (int)json_object_get_number(dProperties, "ec");
+        Log_Debug("ec: %d\n", ecValue);
+    }
+    else {
+        Log_Debug("ec not found!\n");
+    }
+
+    // The d properties should have a "ct" key
+    if (json_object_has_value(dProperties, "ct") != 0) {
+        ctValue = (int)json_object_get_number(dProperties, "ct");
+        Log_Debug("ct: %d\n", ctValue);
+    }
+    else {
+        Log_Debug("ct not found!\n");
+    }
+#endif 
+
+    // The d properties should have a "dtg" key
+    if (json_object_has_value(dProperties, "dtg") != 0) {
+        strncpy(dtgGUID, (char*)json_object_get_string(dProperties, "dtg"), GUID_LEN);
+#ifdef MESSAGE_DEBUG
+        Log_Debug("dtg: %s\n", dtgGUID);
+#endif 
+    }
+    else {
+        Log_Debug("dtg not found!\n");
+    }
+
+    // The d properties should have a "sid" key
+    if (json_object_has_value(dProperties, "sid") != 0) {
+        char newSIDString[64 + 1];
+        strncpy(newSIDString, (char*)json_object_get_string(dProperties, "sid"),SID_LEN);
+#ifdef MESSAGE_DEBUG
+        Log_Debug("sid: %s\n", newSIDString);
+#endif 
+        
+        if (strncmp(newSIDString, sidString, SID_LEN) != 0) {
+#ifdef MESSAGE_DEBUG
+            Log_Debug("sid string is different, write the new string to Flash\n");
+#endif 
+            WriteSIDToMutableFile(newSIDString);
+            strncpy(sidString, newSIDString, SID_LEN);
+        }
+#ifdef MESSAGE_DEBUG
+        else {
+            Log_Debug("sid string did not change!\n");
+        }
+#endif 
+    }
+    else {
+        Log_Debug("sid not found!\n");
+    }
+
+    // The d properties should have a "g" key
+    if (json_object_has_value(dProperties, "g") != 0) {
+        strncpy(gGUID, (char*)json_object_get_string(dProperties, "g"), GUID_LEN);
+#ifdef MESSAGE_DEBUG
+        Log_Debug("g: %s\n", gGUID);
+#endif 
+    }
+    else {
+        Log_Debug("dtg not found!\n");
+    }
+
+#ifdef PARSE_ALL_IOTC_PARMETERS
+
+    // The d object has a "has" object
+    JSON_Object* hasProperties = json_object_dotget_object(dProperties, "has");
+    if (hasProperties == NULL) {
+        Log_Debug("hasProperties == NULL\n");
+    }
+
+    // The "has" properties should have a "d" key
+    if (json_object_has_value(hasProperties, "d") != 0) {
+        hasDValue = (int)json_object_get_number(hasProperties, "d");
+        Log_Debug("has:d: %d\n", hasDValue);
+    }
+    else {
+        Log_Debug("has:d not found!\n");
+    }
+
+    // The "has" properties should have a "attr" key
+    if (json_object_has_value(hasProperties, "attr") != 0) {
+        hasAttrValue = (int)json_object_get_number(hasProperties, "attr");
+        Log_Debug("has:attr: %d\n", hasAttrValue);
+    }
+    else {
+        Log_Debug("has:attr not found!\n");
+    }
+
+    // The "has" properties should have a "set" key
+    if (json_object_has_value(hasProperties, "set") != 0) {
+        hasSetValue = (int)json_object_get_number(hasProperties, "set");
+        Log_Debug("has:set: %d\n", hasSetValue);
+    }
+    else {
+        Log_Debug("has:set not found!\n");
+    }
+
+    // The "has" properties should have a "r" key
+    if (json_object_has_value(hasProperties, "r") != 0) {
+        hasRValue = (int)json_object_get_number(hasProperties, "r");
+        Log_Debug("has:r %d\n", hasRValue);
+    }
+    else {
+        Log_Debug("has:r not found!\n");
+    }
+#endif 
+
+cleanup:
+    // Release the allocated memory.
+    json_value_free(rootMessage);
+    free(str_msg);
+
+    return IOTHUBMESSAGE_ACCEPTED;
+    
+}
+

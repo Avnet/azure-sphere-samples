@@ -1,0 +1,6 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/Samples/AzureIoT/.vs/AzureIoT/v16
+/Samples/AzureIoT/.vs
