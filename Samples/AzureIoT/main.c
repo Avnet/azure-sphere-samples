@@ -1,4 +1,4 @@
-﻿/* Copyright (c) Microsoft Corporation. All rights reserved.
+/* Copyright (c) Microsoft Corporation. All rights reserved.
    Licensed under the MIT License. */
 
 // This sample C application demonstrates how to interface Azure Sphere devices with Azure IoT
@@ -43,6 +43,10 @@
 #include <applibs/gpio.h>
 #include <applibs/log.h>
 #include <applibs/networking.h>
+#include <applibs/gpio.h>
+#include <applibs/storage.h>
+#include <applibs/eventloop.h>
+#include <applibs/uart.h>
 
 // The following #include imports a "sample appliance" definition. This app comes with multiple
 // implementations of the sample appliance, each in a separate directory, which allow the code to
@@ -56,7 +60,7 @@
 // azsphere_target_hardware_definition to "HardwareDefinitions/avnet_mt3620_sk".
 //
 // See https://aka.ms/AzureSphereHardwareDefinitions for more details.
-#include <hw/sample_appliance.h>
+#include <hw/avnet_g100.h>
 
 #include "eventloop_timer_utilities.h"
 #include "parson.h" // Used to parse Device Twin messages.
@@ -82,15 +86,15 @@ typedef enum {
 
     ExitCode_Main_EventLoopFail = 2,
 
-    ExitCode_ButtonTimer_Consume = 3,
+    ExitCode_IpAddressTimer_Consume = 3,
 
     ExitCode_AzureTimer_Consume = 4,
 
     ExitCode_Init_EventLoop = 5,
     ExitCode_Init_MessageButton = 6,
     ExitCode_Init_OrientationButton = 7,
-    ExitCode_Init_TwinStatusLed = 8,
-    ExitCode_Init_ButtonPollTimer = 9,
+    ExitCode_Init_StatusLeds = 8,
+    ExitCode_init_UartTxTimer = 9,
     ExitCode_Init_AzureTimer = 10,
 
     ExitCode_IsButtonPressed_GetValue = 11,
@@ -101,9 +105,30 @@ typedef enum {
     ExitCode_Validate_DeviceId = 15,
 
     ExitCode_InterfaceConnectionStatus_Failed = 16,
-} ExitCode;
 
+    ExitCode_Init_UartOpen = 17,
+    ExitCode_Init_RegisterIo = 18,
+    ExitCode_UartEvent_Read = 19,
+    ExitCode_SendMessage_Write = 20,
+    ExitCode_UartBuffer_Overflow = 21,
+    ExitCode_ReadTemperatureTimer_Consume = 22,
+    ExitCode_Init_Uart_CpuTemp_Timer = 23,
+    ExitCode_Init_Uart_IpAddress_Timer = 24
+
+
+} ExitCode;
 static volatile sig_atomic_t exitCode = ExitCode_Success;
+
+// Define the {"key": "value"} Json string format for sending string data
+static const char stringJsonObject[] = "{\"%s\":\"%s\"}";
+
+// Define the {"key": value} Json string format for sending floating point data
+static const char floatJsonOjbect[] = "{\"%s\":%2.1f}";
+
+// Define the {"key": value} Json string format for sending integer data
+static const char integerJsonObject[] = "{\"%s\":%d}";
+
+#define JSON_BUFFER_SIZE 64
 
 /// <summary>
 /// Connection types to use when connecting to the Azure IoT Hub.
@@ -149,14 +174,16 @@ static void ReportedStateCallback(int result, void *context);
 static int DeviceMethodCallback(const char *methodName, const unsigned char *payload,
                                 size_t payloadSize, unsigned char **response, size_t *responseSize,
                                 void *userContextCallback);
+static void UartEventHandler(EventLoop *el, int fd, EventLoop_IoEvents events, void *context);
+static void SendUartMessage(int uartFd, const char *dataToSend);
 static const char *GetReasonString(IOTHUB_CLIENT_CONNECTION_STATUS_REASON reason);
 static const char *GetAzureSphereProvisioningResultString(
     AZURE_SPHERE_PROV_RETURN_VALUE provisioningResult);
-static void SendTelemetry(const char *jsonMessage);
 static void SetUpAzureIoTHubClient(void);
-static void SendSimulatedTelemetry(void);
-static void ButtonPollTimerEventHandler(EventLoopTimer *timer);
-static bool IsButtonPressed(int fd, GPIO_Value_Type *oldState);
+static void SendTelemetry(const char *jsonMessage, const char *propertyName,
+                          const char *propertyValue);
+static void uartTxCpuTempEventHandler(EventLoopTimer *timer);
+static void uartTxIpAddressEventHandler(EventLoopTimer *timer);
 static void AzureTimerEventHandler(EventLoopTimer *timer);
 static ExitCode ValidateUserConfiguration(void);
 static void ParseCommandLineArguments(int argc, char *argv[]);
@@ -168,31 +195,36 @@ static bool IsConnectionReadyToSendTelemetry(void);
 static ExitCode InitPeripheralsAndHandlers(void);
 static void CloseFdAndPrintError(int fd, const char *fdName);
 static void ClosePeripheralsAndHandlers(void);
+static void parseAndSendToAzure(char *);
 
 // File descriptors - initialized to invalid value
-// Button
-static int sendMessageButtonGpioFd = -1;
+// UART
+static int uartFd = -1;
 
-// LED
-static int deviceTwinStatusLedGpioFd = -1;
+#define RGB_NUM_LEDS 3
+//  Guardian LEDs
+//  Guardian has 3 independent LEDs mapped to the following MT3620 Module I/Os
+//  LED_1 (Silkscreen Label 1) - AVNET_AESMS_PIN11_GPIO8 on GPIO8
+//  LED_2 (Silkscreen Label 2)- AVNET_AESMS_PIN12_GPIO9 on GPIO9
+//  LED_3 (Silkscreen Label 3)- AVNET_AESMS_PIN13_GPIO10 on GPIO10
+static int gpioConnectionStateLedFds[RGB_NUM_LEDS] = {-1, -1, -1};
+static GPIO_Id gpioConnectionStateLeds[RGB_NUM_LEDS] = {LED_1, LED_2, LED_3};
 
 // Timer / polling
 static EventLoop *eventLoop = NULL;
-static EventLoopTimer *buttonPollTimer = NULL;
+static EventRegistration *uartEventReg = NULL;
+static EventLoopTimer *txUartCpuTempMsgTimer = NULL;
+static EventLoopTimer *txUartIpAddressMsgTimer = NULL;
 static EventLoopTimer *azureTimer = NULL;
 
 // Azure IoT poll periods
 static const int AzureIoTDefaultPollPeriodSeconds = 1;        // poll azure iot every second
-static const int AzureIoTPollPeriodsPerTelemetry = 5;         // only send telemetry 1/5 of polls
 static const int AzureIoTMinReconnectPeriodSeconds = 60;      // back off when reconnecting
 static const int AzureIoTMaxReconnectPeriodSeconds = 10 * 60; // back off limit
 
 static int azureIoTPollPeriodSeconds = -1;
-static int telemetryCount = 0;
-
-// State variables
-static GPIO_Value_Type sendMessageButtonState = GPIO_Value_High;
-static bool statusLedOn = false;
+static int sendTelemetryPeriodSeconds = 10;
+static int readIpAddressPeriodSeconds = 15;
 
 // Usage text for command line arguments in application manifest.
 static const char *cmdLineArgsUsageText =
@@ -200,6 +232,48 @@ static const char *cmdLineArgsUsageText =
     "\"<scope_id>\"]\n"
     "Direction connection type: \" CmdArgs \": [\"--ConnectionType\", \"Direct\", "
     "\"--Hostname\", \"<azureiothub_hostname>\", \"--DeviceID\", \"<device_id>\"]\n";
+
+#define RGB_LED1_INDEX 0
+#define RGB_LED2_INDEX 1
+#define RGB_LED3_INDEX 2
+
+// Define which LED to light up for each case
+typedef enum {
+    RGB_No_Connections = 0b000,
+    RGB_No_Network = 0b001,        // No WiFi connection
+    RGB_Network_Connected = 0b010, // Connected to Azure, not IoT Hub
+    RGB_IoT_Hub_Connected = 0b100, // Connected to IoT Hub
+} RGB_Status;
+
+// Using the bits set in networkStatus, turn on/off the status LEDs
+void setConnectionStatusLed(RGB_Status networkStatus)
+{
+    GPIO_SetValue(gpioConnectionStateLedFds[RGB_LED1_INDEX],
+                  (networkStatus & (1 << RGB_LED1_INDEX)) ? GPIO_Value_Low : GPIO_Value_High);
+    GPIO_SetValue(gpioConnectionStateLedFds[RGB_LED2_INDEX],
+                  (networkStatus & (1 << RGB_LED2_INDEX)) ? GPIO_Value_Low : GPIO_Value_High);
+    GPIO_SetValue(gpioConnectionStateLedFds[RGB_LED3_INDEX],
+                  (networkStatus & (1 << RGB_LED3_INDEX)) ? GPIO_Value_Low : GPIO_Value_High);
+}
+
+// Determine the network status and call the routine to set the status LEDs
+void updateConnectionStatusLed(void)
+{
+    RGB_Status networkStatus;
+    bool bIsNetworkReady = false;
+
+    if (Networking_IsNetworkingReady(&bIsNetworkReady) < 0) {
+        networkStatus = RGB_No_Connections; // network error
+    } else {
+        networkStatus = !bIsNetworkReady ? RGB_No_Network // no Network, No WiFi
+                                         : (iothubAuthenticated
+                                                ? RGB_IoT_Hub_Connected   // IoT hub connected
+                                                : RGB_Network_Connected); // only Network connected
+    }
+
+    // Set the LEDs based on the current status
+    setConnectionStatusLed(networkStatus);
+}
 
 /// <summary>
 ///     Signal handler for termination requests. This handler must be async-signal-safe.
@@ -248,18 +322,50 @@ int main(int argc, char *argv[])
 }
 
 /// <summary>
-///     Button timer event:  Check the status of the button
+///     Uart Ip Address timer event:  Send a read IP address command to the Pi
 /// </summary>
-static void ButtonPollTimerEventHandler(EventLoopTimer *timer)
+static void uartTxIpAddressEventHandler(EventLoopTimer *timer)
 {
+
+    static int count = 0;
+
     if (ConsumeEventLoopTimerEvent(timer) != 0) {
-        exitCode = ExitCode_ButtonTimer_Consume;
+        exitCode = ExitCode_IpAddressTimer_Consume;
         return;
     }
 
-    if (IsButtonPressed(sendMessageButtonGpioFd, &sendMessageButtonState)) {
-        SendTelemetry("{\"ButtonPress\" : \"True\"}");
+    // Send a UART command to read the IP Address' from the device
+    SendUartMessage(uartFd, "IpAddressCmd\n");
+
+    // Throttle back the read period after 5 reads
+    if (++count == 5) {
+
+        // Update the timer to fire every 120 seconds
+        readIpAddressPeriodSeconds = 120;
+        const struct timespec txUartIpAddressPeriod = {.tv_sec = readIpAddressPeriodSeconds,
+                                                       .tv_nsec = 1000 * 0};
+        SetEventLoopTimerPeriod(txUartIpAddressMsgTimer, &txUartIpAddressPeriod);
     }
+
+    if (count > 5) {
+        // Fix the count at > 5 so we don't have to worry about overflow
+        count = 6;
+    }
+}
+
+/// <summary>
+///     Uart CPU Temperature timer event:  Send a read CPU temperature command to the Pi
+/// </summary>
+static void uartTxCpuTempEventHandler(EventLoopTimer *timer)
+{
+
+    if (ConsumeEventLoopTimerEvent(timer) != 0) {
+        exitCode = ExitCode_ReadTemperatureTimer_Consume;
+        return;
+    }
+
+    // Send a UART command to read the CPU temperature from the device
+    SendUartMessage(uartFd, "ReadCPUTempCmd\n");
 }
 
 /// <summary>
@@ -271,6 +377,9 @@ static void AzureTimerEventHandler(EventLoopTimer *timer)
         exitCode = ExitCode_AzureTimer_Consume;
         return;
     }
+
+    // Keep the status LEDs updated
+    updateConnectionStatusLed();
 
     // Check whether the device is connected to the internet.
     Networking_InterfaceConnectionStatus status;
@@ -288,15 +397,8 @@ static void AzureTimerEventHandler(EventLoopTimer *timer)
         }
     }
 
+    // Make sure we're connected to the IoT Hub
     if (iotHubClientAuthenticationState == IoTHubClientAuthenticationState_Authenticated) {
-        telemetryCount++;
-        if (telemetryCount == AzureIoTPollPeriodsPerTelemetry) {
-            telemetryCount = 0;
-            SendSimulatedTelemetry();
-        }
-    }
-
-    if (iothubClientHandle != NULL) {
         IoTHubDeviceClient_LL_DoWork(iothubClientHandle);
     }
 }
@@ -417,29 +519,47 @@ static ExitCode InitPeripheralsAndHandlers(void)
         return ExitCode_Init_EventLoop;
     }
 
-    // Open SAMPLE_BUTTON_1 GPIO as input
-    Log_Debug("Opening SAMPLE_BUTTON_1 as input.\n");
-    sendMessageButtonGpioFd = GPIO_OpenAsInput(SAMPLE_BUTTON_1);
-    if (sendMessageButtonGpioFd == -1) {
-        Log_Debug("ERROR: Could not open SAMPLE_BUTTON_1: %s (%d).\n", strerror(errno), errno);
-        return ExitCode_Init_MessageButton;
+	// Initailize the user LED FDs, 
+    for (int i = 0; i < RGB_NUM_LEDS; i++) {
+        gpioConnectionStateLedFds[i] = GPIO_OpenAsOutput(gpioConnectionStateLeds[i],
+                                                         GPIO_OutputMode_PushPull, GPIO_Value_High);
+        if (gpioConnectionStateLedFds[i] < 0) {
+            Log_Debug("ERROR: Could not open LED GPIO: %s (%d).\n", strerror(errno), errno);
+            return ExitCode_Init_StatusLeds;
+        }
     }
 
-    // SAMPLE_LED is used to show Device Twin settings state
-    Log_Debug("Opening SAMPLE_LED as output.\n");
-    deviceTwinStatusLedGpioFd =
-        GPIO_OpenAsOutput(SAMPLE_LED, GPIO_OutputMode_PushPull, GPIO_Value_High);
-    if (deviceTwinStatusLedGpioFd == -1) {
-        Log_Debug("ERROR: Could not open SAMPLE_LED: %s (%d).\n", strerror(errno), errno);
-        return ExitCode_Init_TwinStatusLed;
+    // Create a UART_Config object, open the UART and set up UART event handler
+    UART_Config uartConfig;
+    UART_InitConfig(&uartConfig);
+    uartConfig.baudRate = 115200;
+    uartConfig.flowControl = UART_FlowControl_None;
+    uartFd = UART_Open(EXTERNAL_UART, &uartConfig);
+    if (uartFd == -1) {
+        Log_Debug("ERROR: Could not open UART: %s (%d).\n", strerror(errno), errno);
+        return ExitCode_Init_UartOpen;
+    }
+    uartEventReg = EventLoop_RegisterIo(eventLoop, uartFd, EventLoop_Input, UartEventHandler, NULL);
+    if (uartEventReg == NULL) {
+        return ExitCode_Init_RegisterIo;
     }
 
-    // Set up a timer to poll for button events.
-    static const struct timespec buttonPressCheckPeriod = {.tv_sec = 0, .tv_nsec = 1000 * 1000};
-    buttonPollTimer = CreateEventLoopPeriodicTimer(eventLoop, &ButtonPollTimerEventHandler,
-                                                   &buttonPressCheckPeriod);
-    if (buttonPollTimer == NULL) {
-        return ExitCode_Init_ButtonPollTimer;
+    // Set up a timer to periodically send UART ReadCPUTempCmd messages.
+    const struct timespec txUartCpuTempPeriod = {.tv_sec = sendTelemetryPeriodSeconds,
+                                                 .tv_nsec = 1000 * 0};
+    txUartCpuTempMsgTimer =
+        CreateEventLoopPeriodicTimer(eventLoop, &uartTxCpuTempEventHandler, &txUartCpuTempPeriod);
+    if (txUartCpuTempMsgTimer == NULL) {
+        return ExitCode_Init_Uart_CpuTemp_Timer;
+    }
+
+    // Set up a timer to periodically send UART read IP Address Cmd messages.
+    const struct timespec txUartIpAddressPeriod = {.tv_sec = readIpAddressPeriodSeconds,
+                                                   .tv_nsec = 1000 * 0};
+    txUartIpAddressMsgTimer = CreateEventLoopPeriodicTimer(eventLoop, &uartTxIpAddressEventHandler,
+                                                           &txUartIpAddressPeriod);
+    if (txUartIpAddressMsgTimer == NULL) {
+        return ExitCode_Init_Uart_IpAddress_Timer;
     }
 
     azureIoTPollPeriodSeconds = AzureIoTDefaultPollPeriodSeconds;
@@ -449,6 +569,11 @@ static ExitCode InitPeripheralsAndHandlers(void)
     if (azureTimer == NULL) {
         return ExitCode_Init_AzureTimer;
     }
+
+    // Send a UART command to read the CPU temperature
+    // We've seen some initial garbage data from the UART on the first call
+    // This call will flush out that case, the Pi handles the case without issues
+    SendUartMessage(uartFd, "ReadCPUTempCmd\n");
 
     return ExitCode_Success;
 }
@@ -473,19 +598,23 @@ static void CloseFdAndPrintError(int fd, const char *fdName)
 /// </summary>
 static void ClosePeripheralsAndHandlers(void)
 {
-    DisposeEventLoopTimer(buttonPollTimer);
+    DisposeEventLoopTimer(txUartCpuTempMsgTimer);
+    DisposeEventLoopTimer(txUartIpAddressMsgTimer);
     DisposeEventLoopTimer(azureTimer);
     EventLoop_Close(eventLoop);
+    EventLoop_UnregisterIo(eventLoop, uartEventReg);
 
     Log_Debug("Closing file descriptors\n");
 
-    // Leave the LEDs off
-    if (deviceTwinStatusLedGpioFd >= 0) {
-        GPIO_SetValue(deviceTwinStatusLedGpioFd, GPIO_Value_High);
-    }
+	// Turn the WiFi connection status LEDs off
+    setConnectionStatusLed(RGB_No_Connections);
 
-    CloseFdAndPrintError(sendMessageButtonGpioFd, "SendMessageButton");
-    CloseFdAndPrintError(deviceTwinStatusLedGpioFd, "StatusLed");
+    // Close the status LED file descriptors
+    for (int i = 0; i < RGB_NUM_LEDS; i++) {
+        CloseFdAndPrintError(gpioConnectionStateLedFds[i], "ConnectionStatusLED");
+    }    
+
+    CloseFdAndPrintError(uartFd, "Uart");
 }
 
 /// <summary>
@@ -506,8 +635,17 @@ static void ConnectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result,
 
     iotHubClientAuthenticationState = IoTHubClientAuthenticationState_Authenticated;
 
-    // Send static device twin properties when connection is established.
-    TwinReportState("{\"manufacturer\":\"Microsoft\",\"model\":\"Azure Sphere Sample Device\"}");
+    // Send static device twin properties when connection is established
+    TwinReportState("{\"manufacturer\":\"Avnet\",\"model\":\"Azure Sphere POC Device\"}");
+
+    // Send the current value of the telemetry timer up as a device twin reported property
+    char telemetryPeriodTwin[32];
+    snprintf(telemetryPeriodTwin, sizeof(telemetryPeriodTwin), integerJsonObject,
+             "TelemetryInterval", sendTelemetryPeriodSeconds);
+    TwinReportState(telemetryPeriodTwin);
+    
+    // Since the connection state just changed, update the status LEDs
+    updateConnectionStatusLed();
 }
 
 /// <summary>
@@ -619,6 +757,11 @@ static bool SetUpAzureIoTHubClientWithDps(void)
 
 /// <summary>
 ///     Callback invoked when a Direct Method is received from Azure IoT Hub.
+///     There are three direct methods supported in this application
+///     1. TriggerAlarm 
+///     2. RebootPi
+///     3. PowerDownPi
+///     Neither direct method requires any arguments
 /// </summary>
 static int DeviceMethodCallback(const char *methodName, const unsigned char *payload,
                                 size_t payloadSize, unsigned char **response, size_t *responseSize,
@@ -634,7 +777,22 @@ static int DeviceMethodCallback(const char *methodName, const unsigned char *pay
         Log_Debug("  ----- ALARM TRIGGERED! -----\n");
         responseString = "\"Alarm Triggered\""; // must be a JSON string (in quotes)
         result = 200;
-    } else {
+    } 
+    else if(strcmp("RebootPi", methodName) == 0) {
+        // Output alarm using Log_Debug
+        Log_Debug("Send a Reboot command to the Pi\n");
+        SendUartMessage(uartFd, "RebootCmd\n");
+        responseString = "\"Reboot Message Sent do Pi!\""; // must be a JSON string (in quotes)
+        result = 200;
+    }
+    else if(strcmp("PowerDownPi", methodName) == 0) {
+        // Output alarm using Log_Debug
+        Log_Debug("Send a Power Down command to the Pi\n");
+        SendUartMessage(uartFd, "PowerdownCmd\n");
+        responseString = "\"Power Down Message Sent to Pi!\""; // must be a JSON string (in quotes)
+        result = 200;
+    }
+    else {
         // All other method names are ignored
         responseString = "{}";
         result = -1;
@@ -678,20 +836,26 @@ static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsig
         desiredProperties = rootObject;
     }
 
-    // The desired properties should have a "StatusLED" object
-    int statusLedValue = json_object_dotget_boolean(desiredProperties, "StatusLED");
-    if (statusLedValue != -1) {
-        statusLedOn = statusLedValue == 1;
-        GPIO_SetValue(deviceTwinStatusLedGpioFd, statusLedOn ? GPIO_Value_Low : GPIO_Value_High);
-    }
+     // The desired properties should have a "TelemetryInterval" object
+    int TelemetryIntervalValue = (int)json_object_dotget_number(desiredProperties, "TelemetryInterval");
+    if (TelemetryIntervalValue > 0) {
 
-    // Report current status LED state
-    if (statusLedOn) {
-        TwinReportState("{\"StatusLED\":true}");
-    } else {
-        TwinReportState("{\"StatusLED\":false}");
-    }
+        // Update the global variable
+        sendTelemetryPeriodSeconds = TelemetryIntervalValue;
 
+        // Update the timer to reflect the new request
+        const struct timespec cpuTempRequestPeriod = {.tv_sec = sendTelemetryPeriodSeconds,
+                                                      .tv_nsec = 1000 * 0};
+        // Request the timer change
+        SetEventLoopTimerPeriod(txUartCpuTempMsgTimer, &cpuTempRequestPeriod);
+
+        // construct a device twin reported properties message and send it
+        // Send the current value of the telemetry timer up as a device twin reported property
+        char telemetryPeriodTwin[32];
+        snprintf(telemetryPeriodTwin, sizeof(telemetryPeriodTwin), integerJsonObject,
+                 "TelemetryInterval", sendTelemetryPeriodSeconds);
+        TwinReportState(telemetryPeriodTwin);
+    }
 cleanup:
     // Release the allocated memory.
     json_value_free(rootProperties);
@@ -789,7 +953,8 @@ static bool IsConnectionReadyToSendTelemetry(void)
 /// <summary>
 ///     Sends telemetry to Azure IoT Hub
 /// </summary>
-static void SendTelemetry(const char *jsonMessage)
+static void SendTelemetry(const char *jsonMessage, const char *propertyName,
+                          const char *propertyValue)
 {
     if (iotHubClientAuthenticationState != IoTHubClientAuthenticationState_Authenticated) {
         // AzureIoT client is not authenticated. Log a warning and return.
@@ -798,6 +963,7 @@ static void SendTelemetry(const char *jsonMessage)
     }
 
     Log_Debug("Sending Azure IoT Hub telemetry: %s.\n", jsonMessage);
+
 
     // Check whether the device is connected to the internet.
     if (IsConnectionReadyToSendTelemetry() == false) {
@@ -809,6 +975,12 @@ static void SendTelemetry(const char *jsonMessage)
     if (messageHandle == 0) {
         Log_Debug("ERROR: unable to create a new IoTHubMessage.\n");
         return;
+    }
+
+    if ((propertyName != NULL) && (propertyValue != NULL)) {
+        
+        // Set the property details
+        IoTHubMessage_SetProperty(messageHandle, propertyName, propertyValue);
     }
 
     if (IoTHubDeviceClient_LL_SendEventAsync(iothubClientHandle, messageHandle, SendEventCallback,
@@ -858,47 +1030,241 @@ static void ReportedStateCallback(int result, void *context)
     Log_Debug("INFO: Azure IoT Hub Device Twin reported state callback: status code %d.\n", result);
 }
 
-#define TELEMETRY_BUFFER_SIZE 100
-
 /// <summary>
-///     Generate simulated telemetry and send to Azure IoT Hub.
+///     Handle UART event: if there is incoming data, print it.
+///     This satisfies the EventLoopIoCallback signature.
 /// </summary>
-void SendSimulatedTelemetry(void)
+static void UartEventHandler(EventLoop *el, int fd, EventLoop_IoEvents events, void *context)
 {
-    // Generate a simulated temperature.
-    static float temperature = 50.0f;                    // starting temperature
-    float delta = ((float)(rand() % 41)) / 20.0f - 1.0f; // between -1.0 and +1.0
-    temperature += delta;
+    // Uncomment for circular queue debug
+    //#define ENABLE_UART_DEBUG
 
-    char telemetryBuffer[TELEMETRY_BUFFER_SIZE];
-    int len =
-        snprintf(telemetryBuffer, TELEMETRY_BUFFER_SIZE, "{\"Temperature\":%3.2f}", temperature);
-    if (len < 0 || len >= TELEMETRY_BUFFER_SIZE) {
-        Log_Debug("ERROR: Cannot write telemetry to buffer.\n");
+#define RX_BUFFER_SIZE 128
+#define DATA_BUFFER_SIZE 128
+#define DATA_BUFFER_MASK (DATA_BUFFER_SIZE - 1)
+
+    // Buffer for incomming data
+    uint8_t receiveBuffer[RX_BUFFER_SIZE];
+
+    // Buffer for persistant data.  Sometimes we don't receive all the
+    // data at once so we need to store it in a persistant buffer before processing.
+    static uint8_t dataBuffer[DATA_BUFFER_SIZE];
+
+    // The index into the dataBuffer to write the next piece of RX data
+    static int nextData = 0;
+
+    // The index to the head of the valid/current data, this is the beginning
+    // of the next response
+    static int currentData = 0;
+
+    // The number of btyes in the dataBuffer, used to make sure we don't overflow the buffer
+    static int bytesInBuffer = 0;
+
+    ssize_t bytesRead;
+
+    // Read the uart
+    bytesRead = read(uartFd, receiveBuffer, RX_BUFFER_SIZE);
+
+#ifdef ENABLE_UART_DEBUG
+    Log_Debug("Enter: bytesInBuffer: %d\n", bytesInBuffer);
+    Log_Debug("Enter: bytesRead: %d\n", bytesRead);
+    Log_Debug("Enter: nextData: %d\n", nextData);
+    Log_Debug("Enter: currentData: %d\n", currentData);
+#endif
+
+    // Check to make sure we're not going to over run the buffer
+    if ((bytesInBuffer + bytesRead) > DATA_BUFFER_SIZE) {
+
+        // The buffer is full, attempt to recover by emptying the buffer!
+        Log_Debug("Buffer Full!  Purging\n");
+
+        nextData = 0;
+        currentData = 0;
+        bytesInBuffer = 0;
         return;
     }
-    SendTelemetry(telemetryBuffer);
+
+    // Move data from the receive Buffer into the Data Buffer.  We do this
+    // because sometimes we don't receive the entire message in one uart read.
+    for (int i = 0; i < bytesRead; i++) {
+
+        // Copy the data into the dataBuffer
+        dataBuffer[nextData] = receiveBuffer[i];
+#ifdef ENABLE_UART_DEBUG
+        Log_Debug("dataBuffer[%d] = %c\n", nextData, receiveBuffer[i]);
+#endif
+        // Increment the bytes count
+        bytesInBuffer++;
+
+        // Increment the nextData pointer and adjust for wrap around
+        nextData = ((nextData + 1) & DATA_BUFFER_MASK);
+    }
+
+    // Check to see if we can find a response.  A response will end with a '\n' character
+    // Start looking at the beginning of the first non-processed message @ currentData
+
+    // Use a temp buffer pointer in case we don't find a message
+    int tempCurrentData = currentData;
+
+    // Iterate over the valid data from currentData to nextData locations in the buffer
+    while (tempCurrentData != nextData) {
+        if (dataBuffer[tempCurrentData] == '\n') {
+
+#ifdef ENABLE_UART_DEBUG
+            // Found a message from index currentData to tempNextData
+            Log_Debug("Found message from %d to %d\n", currentData, tempCurrentData);
+#endif
+            // Determine the size of the new message we just found, account for the case
+            // where the message wraps from the end of the buffer to the beginning
+            int responseMsgSize = 0;
+            if (currentData > tempCurrentData) {
+                responseMsgSize = (DATA_BUFFER_SIZE - currentData) + tempCurrentData;
+            } else {
+                responseMsgSize = tempCurrentData - currentData;
+            }
+
+            // Declare a new buffer to hold the response we just found
+            uint8_t responseMsg[responseMsgSize + 1];
+
+            // Copy the response from the buffer, do it one byte at a time
+            // since the message may wrap in the data buffer
+            for (int j = 0; j < responseMsgSize; j++) {
+                responseMsg[j] = dataBuffer[(currentData + j) & DATA_BUFFER_MASK];
+                bytesInBuffer--;
+            }
+
+            // Decrement the bytesInBuffer one more time to account for the '\n' charcter
+            bytesInBuffer--;
+
+            // Null terminate the message and print it out to debug
+            responseMsg[responseMsgSize] = '\0';
+            Log_Debug("RX: %s\n", responseMsg);
+
+            // Call the routine that knows how to parse the response and send data to Azure
+            parseAndSendToAzure(responseMsg);
+
+            // Update the currentData index and adjust for the '\n' character
+            currentData = tempCurrentData + 1;
+            // Overwrite the '\n' character so we don't accidently find it and think
+            // we found a new mssage
+            dataBuffer[tempCurrentData] = '\0';
+        }
+
+        else if (tempCurrentData == nextData) {
+
+#ifdef ENABLE_UART_DEBUG
+            Log_Debug("No message found, exiting . . . \n");
+#endif
+            return;
+        }
+
+        // Increment the temp CurrentData pointer and let it wrap if needed
+        tempCurrentData = ((tempCurrentData + 1) & DATA_BUFFER_MASK);
+    }
+
+#ifdef ENABLE_UART_DEBUG
+    Log_Debug("Exit: nextData: %d\n", nextData);
+    Log_Debug("Exit: currentData: %d\n", currentData);
+    Log_Debug("Exit: bytesInBuffer: %d\n", bytesInBuffer);
+#endif
 }
 
 /// <summary>
-///     Check whether a given button has just been pressed.
+///     Helper function to send a fixed message via the given UART.
 /// </summary>
-/// <param name="fd">The button file descriptor</param>
-/// <param name="oldState">Old state of the button (pressed or released)</param>
-/// <returns>true if pressed, false otherwise</returns>
-static bool IsButtonPressed(int fd, GPIO_Value_Type *oldState)
+/// <param name="uartFd">The open file descriptor of the UART to write to</param>
+/// <param name="dataToSend">The data to send over the UART</param>
+static void SendUartMessage(int uartFd, const char *dataToSend)
 {
-    bool isButtonPressed = false;
-    GPIO_Value_Type newState;
-    int result = GPIO_GetValue(fd, &newState);
-    if (result != 0) {
-        Log_Debug("ERROR: Could not read button GPIO: %s (%d).\n", strerror(errno), errno);
-        exitCode = ExitCode_IsButtonPressed_GetValue;
-    } else {
-        // Button is pressed if it is low and different than last known state.
-        isButtonPressed = (newState != *oldState) && (newState == GPIO_Value_Low);
-        *oldState = newState;
+    size_t totalBytesSent = 0;
+    size_t totalBytesToSend = strlen(dataToSend);
+    int sendIterations = 0;
+    while (totalBytesSent < totalBytesToSend) {
+        sendIterations++;
+
+        // Send as much of the remaining data as possible
+        size_t bytesLeftToSend = totalBytesToSend - totalBytesSent;
+        const char *remainingMessageToSend = dataToSend + totalBytesSent;
+        ssize_t bytesSent = write(uartFd, remainingMessageToSend, bytesLeftToSend);
+        if (bytesSent == -1) {
+            Log_Debug("ERROR: Could not write to UART: %s (%d).\n", strerror(errno), errno);
+            exitCode = ExitCode_SendMessage_Write;
+            return;
+        }
+
+        totalBytesSent += (size_t)bytesSent;
     }
 
-    return isButtonPressed;
+    Log_Debug("Sent %zu bytes over UART in %d calls.\n", totalBytesSent, sendIterations);
+}
+
+/// <summary>
+///     Function to parse UART Rx messages and send to IoT Hub.
+/// </summary>
+/// <param name="msgToParse">The message received from the UART</param>
+static void parseAndSendToAzure(char *msgToParse)
+{
+    // This routine is expecting data in the format key:value.  In all cases the value will be
+    // represented as a character string.  We're expecting 4 different keys Responses to the
+    // commands. three from the IpAddressCmd.  When we receive these responses we'll send the data
+    // as device twin reported properties.
+    //
+    //    lo:<ipaddress>    // Loopback Address
+    //    wlan0:<ipaddress> // WiFi address
+    //    eth0:<ipaddress>  // Ethernet address
+    //
+    // We're expecting one response to the ReadCpuCmd.  If the response is from this command we'll
+    // send data to azure as telemetry.
+    //    temp:<temp in C>
+
+    // Variable to hold the "key" string
+    char key[16];
+    // Variable to hold the "value" string
+    char value[32];
+
+// Assume we'll be sending a message to Azure and allocate a buffer
+#define JSON_BUFFER_SIZE 64
+    char *pjsonBuffer = (char *)malloc(JSON_BUFFER_SIZE);
+    if (pjsonBuffer == NULL) {
+        Log_Debug("ERROR: not enough memory to send a message to Azure");
+        return;
+    }
+
+    // Find the index of the ':' in the string
+    for (int i = 0; i < strlen(msgToParse); i++) {
+        if (msgToParse[i] == ':') {
+            // We found the seperator character ':'.  Process the message!
+
+            // Extract the "key" and null terminate it
+            strncpy(key, msgToParse, (size_t)i);
+            key[i] = '\0';
+
+            // Extract the "value" and null terminate it
+            strncpy(value, &msgToParse[i + 1], strlen(msgToParse) - (size_t)i - 1);
+            value[(strlen(msgToParse) - (size_t)i - 1)] = '\0';
+
+            // Check the special case where the key is "temp."  We need to convert this
+            // case to a float, but if it's an IP address we'll just pass the string up.
+            if (strncmp(key, "temp", strlen(key)) == 0) {
+
+                // construct the telemetry message and send it
+                snprintf(pjsonBuffer, JSON_BUFFER_SIZE, floatJsonOjbect, key, atof(value));
+                
+                // Don't set any message properties
+//              SendTelemetry(pjsonBuffer, NULL, NULL);
+               
+                // Set the message property
+                SendTelemetry(pjsonBuffer, "log", "true");
+
+            } else { // key is a interface name
+
+                // construct a device twin reported properties message and send it
+                snprintf(pjsonBuffer, JSON_BUFFER_SIZE, stringJsonObject, key, value);
+                TwinReportState(pjsonBuffer);
+            }
+        }
+    }
+
+    // Free the memory
+    free(pjsonBuffer);
 }
