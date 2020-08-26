@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.10)
 
-project(AzureIoT C)
+project(IoTConnectTemplate C)
 
 azsphere_configure_tools(TOOLS_REVISION "20.07")
 azsphere_configure_api(TARGET_API_SET "6")
@@ -13,8 +13,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC ${AZURE_SPHERE_API_SET_DIR}/us
 target_compile_definitions(${PROJECT_NAME} PUBLIC AZURE_IOT_HUB_CONFIGURED)
 target_link_libraries(${PROJECT_NAME} m azureiot applibs pthread gcc_s c)
 
-azsphere_target_hardware_definition(${PROJECT_NAME} TARGET_DIRECTORY "../../HardwareDefinitions/mt3620_rdb" TARGET_DEFINITION "sample_appliance.json")
-
+azsphere_target_hardware_definition(${PROJECT_NAME} TARGET_DIRECTORY "../../HardwareDefinitions/avnet_mt3620_sk" TARGET_DEFINITION "sample_appliance.json")
 find_program(POWERSHELL powershell.exe)
 
 if (POWERSHELL)
