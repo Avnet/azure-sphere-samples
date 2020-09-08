@@ -507,7 +507,7 @@ static void ConnectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result,
     iotHubClientAuthenticationState = IoTHubClientAuthenticationState_Authenticated;
 
     // Send static device twin properties when connection is established.
-    TwinReportState("{\"manufacturer\":\"Microsoft\",\"model\":\"Azure Sphere Sample Device\"}");
+    TwinReportState("{\"manufacturer\":\"Avnet\",\"model\":\"Azure Sphere Starter Kit\"}");
 }
 
 /// <summary>

@@ -1,7 +1,7 @@
 {
   "SchemaVersion": 1,
-  "Name": "AzureIoT",
-  "ComponentId": "819255ff-8640-41fd-aea7-f85d34c491d5",
+  "Name": "TE_Demo",
+  "ComponentId": "F7439530-BA37-4158-9438-43DA72FD8899",
   "EntryPoint": "/bin/app",
   "CmdArgs": [ "--ConnectionType", "DPS", "--ScopeID", "0ne0008CB04" ],
   "Capabilities": {
