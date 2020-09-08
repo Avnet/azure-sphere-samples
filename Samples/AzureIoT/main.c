@@ -43,6 +43,8 @@
 #include <applibs/gpio.h>
 #include <applibs/log.h>
 #include <applibs/networking.h>
+#include <applibs/i2c.h>
+
 
 // The following #include imports a "sample appliance" definition. This app comes with multiple
 // implementations of the sample appliance, each in a separate directory, which allow the code to
@@ -101,6 +103,27 @@ typedef enum {
     ExitCode_Validate_DeviceId = 15,
 
     ExitCode_InterfaceConnectionStatus_Failed = 16,
+    
+    ExitCode_SensorTimer_Consume = 17,
+
+    ExitCode_Init_OpenMaster = 18,
+    ExitCode_Init_SetBusSpeed = 19,
+    ExitCode_Init_SetTimeout = 20,
+    ExitCode_Init_SetDefaultTarget = 21,
+    ExitCode_SampleRange_SetRange = 22,
+    ExitCode_SampleRange_Reset = 23,
+    ExitCode_ReadWhoAmI_WriteThenRead = 24,
+    ExitCode_ReadWhoAmI_WriteThenReadCompare = 25,
+    ExitCode_ReadWhoAmI_Write = 26, 
+    ExitCode_ReadWhoAmI_Read = 27,
+    ExitCode_ReadWhoAmI_WriteReadCompare = 28,
+    ExitCode_ReadWhoAmI_PosixWrite = 29,
+    ExitCode_ReadWhoAmI_PosixRead = 30,
+    ExitCode_ReadWhoAmI_PosixCompare = 31,
+    ExitCode_AccelTimer_ReadZAccel = 32,
+    ExitCode_AccelTimer_ReadStatus = 33,
+
+
 } ExitCode;
 
 static volatile sig_atomic_t exitCode = ExitCode_Success;
@@ -141,6 +164,9 @@ static const int deviceIdForDaaCertUsage = 1; // A constant used to direct the I
 static const char NetworkInterface[] = "wlan0";
 
 // Function declarations
+static ExitCode ReadWhoAmI(void);
+static bool CheckTransferSize(const char *desc, size_t expectedBytes, ssize_t actualBytes);
+static ExitCode ResetAndSetSampleRange(void);
 static void SendEventCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result, void *context);
 static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsigned char *payload,
                                size_t payloadSize, void *userContextCallback);
@@ -156,6 +182,7 @@ static void SendTelemetry(const char *jsonMessage);
 static void SetUpAzureIoTHubClient(void);
 static void SendSimulatedTelemetry(void);
 static void ButtonPollTimerEventHandler(EventLoopTimer *timer);
+static void SensorPollTimerEventHandler(EventLoopTimer *timer);
 static bool IsButtonPressed(int fd, GPIO_Value_Type *oldState);
 static void AzureTimerEventHandler(EventLoopTimer *timer);
 static ExitCode ValidateUserConfiguration(void);
@@ -176,19 +203,26 @@ static int sendMessageButtonGpioFd = -1;
 // LED
 static int deviceTwinStatusLedGpioFd = -1;
 
+// Temperature Sensor
+static int i2cFd = -1;
+
 // Timer / polling
 static EventLoop *eventLoop = NULL;
 static EventLoopTimer *buttonPollTimer = NULL;
+static EventLoopTimer *sensorPollTimer = NULL;
 static EventLoopTimer *azureTimer = NULL;
+
+// DocID026899 Rev 10, S6.1.1, I2C operation
+// SDO is tied to ground so the least significant bit of the address is zero.
+static const uint8_t lsm6ds3Address = 0x6A;
+
 
 // Azure IoT poll periods
 static const int AzureIoTDefaultPollPeriodSeconds = 1;        // poll azure iot every second
-static const int AzureIoTPollPeriodsPerTelemetry = 5;         // only send telemetry 1/5 of polls
 static const int AzureIoTMinReconnectPeriodSeconds = 60;      // back off when reconnecting
 static const int AzureIoTMaxReconnectPeriodSeconds = 10 * 60; // back off limit
 
 static int azureIoTPollPeriodSeconds = -1;
-static int telemetryCount = 0;
 
 // State variables
 static GPIO_Value_Type sendMessageButtonState = GPIO_Value_High;
@@ -263,6 +297,59 @@ static void ButtonPollTimerEventHandler(EventLoopTimer *timer)
 }
 
 /// <summary>
+///     Sensor timer event:  Read the sensor for fresh data
+/// </summary>
+static void SensorPollTimerEventHandler(EventLoopTimer *timer)
+{
+    Log_Debug("Read sensor data here!\n");
+
+        static int iter = 1;
+
+    if (ConsumeEventLoopTimerEvent(timer) != 0) {
+            exitCode = ExitCode_SensorTimer_Consume;
+        return;
+    }
+
+    // Status register describes whether accelerometer is available.
+    // DocID026899 Rev 10, S9.26, STATUS_REG (1Eh); [0] = XLDA
+    static const uint8_t statusRegId = 0x1E;
+    uint8_t status;
+    ssize_t transferredBytes = I2CMaster_WriteThenRead(
+        i2cFd, lsm6ds3Address, &statusRegId, sizeof(statusRegId), &status, sizeof(status));
+    if (!CheckTransferSize("I2CMaster_WriteThenRead (STATUS_REG)",
+                           sizeof(statusRegId) + sizeof(status), transferredBytes)) {
+        exitCode = ExitCode_AccelTimer_ReadStatus;
+        return;
+    }
+
+    if ((status & 0x1) == 0) {
+        Log_Debug("INFO: %d: No accelerometer data.\n", iter);
+    } else {
+        // Read two-byte Z-axis output register.
+        // DocID026899 Rev 10, S9.38, OUTZ_L_XL (2Ch)
+        static const uint8_t outZLXl = 0x2C;
+        int16_t zRaw;
+        transferredBytes = I2CMaster_WriteThenRead(i2cFd, lsm6ds3Address, &outZLXl, sizeof(outZLXl),
+                                                   (uint8_t *)&zRaw, sizeof(zRaw));
+        if (!CheckTransferSize("I2CMaster_WriteThenRead (OUTZ_L_XL)",
+                               sizeof(outZLXl) + sizeof(zRaw), transferredBytes)) {
+            exitCode = ExitCode_AccelTimer_ReadZAccel;
+            return;
+        }
+
+        // DocID026899 Rev 10, S4.1, Mechanical characteristics
+        // These constants are specific to LA_So where FS = +/-4g, as set in CTRL1_X.
+        double g = (zRaw * 0.122) / 1000.0;
+        Log_Debug("INFO: %d: vertical acceleration: %.2lfg\n", iter, g);
+    }
+
+    ++iter;
+
+
+}
+
+
+/// <summary>
 ///     Azure timer event:  Check connection status and send telemetry
 /// </summary>
 static void AzureTimerEventHandler(EventLoopTimer *timer)
@@ -285,14 +372,6 @@ static void AzureTimerEventHandler(EventLoopTimer *timer)
                       strerror(errno));
             exitCode = ExitCode_InterfaceConnectionStatus_Failed;
             return;
-        }
-    }
-
-    if (iotHubClientAuthenticationState == IoTHubClientAuthenticationState_Authenticated) {
-        telemetryCount++;
-        if (telemetryCount == AzureIoTPollPeriodsPerTelemetry) {
-            telemetryCount = 0;
-            SendSimulatedTelemetry();
         }
     }
 
@@ -398,6 +477,100 @@ static ExitCode ValidateUserConfiguration(void)
 }
 
 /// <summary>
+///     Demonstrates three ways of reading data from the attached device.
+//      This also works as a smoke test to ensure the Azure Sphere device can talk to
+///     the I2C device.
+/// </summary>
+/// <returns>
+///     ExitCode_Success on success; otherwise another ExitCode value which indicates
+///     the specific failure.
+/// </returns>
+static ExitCode ReadWhoAmI(void)
+{
+    // DocID026899 Rev 10, S9.11, WHO_AM_I (0Fh); has fixed value 0x69.
+    static const uint8_t whoAmIRegId = 0x0F;
+    static const uint8_t expectedWhoAmI = 0x6C;
+    uint8_t actualWhoAmI;
+
+    // Read register value using AppLibs combination read and write API.
+    ssize_t transferredBytes =
+        I2CMaster_WriteThenRead(i2cFd, lsm6ds3Address, &whoAmIRegId, sizeof(whoAmIRegId),
+                                &actualWhoAmI, sizeof(actualWhoAmI));
+    if (!CheckTransferSize("I2CMaster_WriteThenRead (WHO_AM_I)",
+                           sizeof(whoAmIRegId) + sizeof(actualWhoAmI), transferredBytes)) {
+        return ExitCode_ReadWhoAmI_WriteThenRead;
+    }
+    Log_Debug("INFO: WHO_AM_I=0x%02x (I2CMaster_WriteThenRead)\n", actualWhoAmI);
+    if (actualWhoAmI != expectedWhoAmI) {
+        Log_Debug("ERROR: Unexpected WHO_AM_I value.\n");
+        return ExitCode_ReadWhoAmI_WriteThenReadCompare;
+    }
+    return ExitCode_Success;
+}
+
+/// <summary>
+///    Checks the number of transferred bytes for I2C functions and prints an error
+///    message if the functions failed or if the number of bytes is different than
+///    expected number of bytes to be transferred.
+/// </summary>
+/// <returns>true on success, or false on failure</returns>
+static bool CheckTransferSize(const char *desc, size_t expectedBytes, ssize_t actualBytes)
+{
+    if (actualBytes < 0) {
+        Log_Debug("ERROR: %s: errno=%d (%s)\n", desc, errno, strerror(errno));
+        return false;
+    }
+
+    if (actualBytes != (ssize_t)expectedBytes) {
+        Log_Debug("ERROR: %s: transferred %zd bytes; expected %zd\n", desc, actualBytes,
+                  expectedBytes);
+        return false;
+    }
+
+    return true;
+}
+
+/// <summary>
+///     Resets the accelerometer and sets the sample range.
+/// </summary>
+/// <returns>
+///     ExitCode_Success on success; otherwise another ExitCode value which indicates
+///     the specific failure.
+/// </returns>
+static ExitCode ResetAndSetSampleRange(void)
+{
+    // Reset device to put registers into default state.
+    // DocID026899 Rev 10, S9.14, CTRL3_C (12h); [0] = SW_RESET
+    static const uint8_t ctrl3cRegId = 0x12;
+    const uint8_t resetCommand[] = {ctrl3cRegId, 0x01};
+    ssize_t transferredBytes =
+        I2CMaster_Write(i2cFd, lsm6ds3Address, resetCommand, sizeof(resetCommand));
+    if (!CheckTransferSize("I2CMaster_Write (CTRL3_C)", sizeof(resetCommand), transferredBytes)) {
+        return ExitCode_SampleRange_Reset;
+    }
+
+    // Wait for device to come out of reset.
+    uint8_t ctrl3c;
+    do {
+        transferredBytes = I2CMaster_WriteThenRead(i2cFd, lsm6ds3Address, &ctrl3cRegId,
+                                                   sizeof(ctrl3cRegId), &ctrl3c, sizeof(ctrl3c));
+    } while (!(transferredBytes == (sizeof(ctrl3cRegId) + sizeof(ctrl3c)) && (ctrl3c & 0x1) == 0));
+
+    // Use sample range +/- 4g, with 12.5Hz frequency.
+    // DocID026899 Rev 10, S9.12, CTRL1_XL (10h)
+    static const uint8_t setCtrl1XlCommand[] = {0x10, 0x18};
+    transferredBytes =
+        I2CMaster_Write(i2cFd, lsm6ds3Address, setCtrl1XlCommand, sizeof(setCtrl1XlCommand));
+    if (!CheckTransferSize("I2CMaster_Write (CTRL1_XL)", sizeof(setCtrl1XlCommand),
+                           transferredBytes)) {
+        return ExitCode_SampleRange_SetRange;
+    }
+
+    return ExitCode_Success;
+}
+
+
+/// <summary>
 ///     Set up SIGTERM termination handler, initialize peripherals, and set up event handlers.
 /// </summary>
 /// <returns>
@@ -442,12 +615,53 @@ static ExitCode InitPeripheralsAndHandlers(void)
         return ExitCode_Init_ButtonPollTimer;
     }
 
+    // Set up a timer to poll for sensor readings
+    static const struct timespec sensorCheckPeriod = {.tv_sec = 10, .tv_nsec = 0 * 1000};
+    sensorPollTimer = CreateEventLoopPeriodicTimer(eventLoop, &SensorPollTimerEventHandler,
+                                                   &sensorCheckPeriod);
+    if (buttonPollTimer == NULL) {
+        return ExitCode_Init_ButtonPollTimer;
+    }
+
+
     azureIoTPollPeriodSeconds = AzureIoTDefaultPollPeriodSeconds;
     struct timespec azureTelemetryPeriod = {.tv_sec = azureIoTPollPeriodSeconds, .tv_nsec = 0};
     azureTimer =
         CreateEventLoopPeriodicTimer(eventLoop, &AzureTimerEventHandler, &azureTelemetryPeriod);
     if (azureTimer == NULL) {
         return ExitCode_Init_AzureTimer;
+    }
+
+    i2cFd = I2CMaster_Open(SAMPLE_LSM6DSO_I2C);
+    if (i2cFd == -1) {
+        Log_Debug("ERROR: I2CMaster_Open: errno=%d (%s)\n", errno, strerror(errno));
+        return ExitCode_Init_OpenMaster;
+    }
+
+    int result = I2CMaster_SetBusSpeed(i2cFd, I2C_BUS_SPEED_STANDARD);
+    if (result != 0) {
+        Log_Debug("ERROR: I2CMaster_SetBusSpeed: errno=%d (%s)\n", errno, strerror(errno));
+        return ExitCode_Init_SetBusSpeed;
+    }
+
+    result = I2CMaster_SetTimeout(i2cFd, 100);
+    if (result != 0) {
+        Log_Debug("ERROR: I2CMaster_SetTimeout: errno=%d (%s)\n", errno, strerror(errno));
+        return ExitCode_Init_SetTimeout;
+    }
+
+    // This default address is used for POSIX read and write calls.  The AppLibs APIs take a target
+    // address argument for each read or write.
+    result = I2CMaster_SetDefaultTargetAddress(i2cFd, lsm6ds3Address);
+    if (result != 0) {
+        Log_Debug("ERROR: I2CMaster_SetDefaultTargetAddress: errno=%d (%s)\n", errno,
+                  strerror(errno));
+        return ExitCode_Init_SetDefaultTarget;
+    }
+
+    ExitCode localExitCode = ReadWhoAmI();
+    if (localExitCode != ExitCode_Success) {
+        return localExitCode;
     }
 
     return ExitCode_Success;
@@ -486,6 +700,7 @@ static void ClosePeripheralsAndHandlers(void)
 
     CloseFdAndPrintError(sendMessageButtonGpioFd, "SendMessageButton");
     CloseFdAndPrintError(deviceTwinStatusLedGpioFd, "StatusLed");
+    CloseFdAndPrintError(i2cFd, "i2c");
 }
 
 /// <summary>
