@@ -45,8 +45,6 @@
 #include <applibs/networking.h>
 #include <applibs/i2c.h>
 
-//#define HTU21D
-
 // The following #include imports a "sample appliance" definition. This app comes with multiple
 // implementations of the sample appliance, each in a separate directory, which allow the code to
 // run on different hardware.
@@ -80,7 +78,7 @@
 /// where zero is reserved for successful termination.
 /// </summary>
 
-uint8_t temep;
+//#define HTU21D
 
 typedef enum {
     ExitCode_Success = 0,
@@ -121,13 +119,8 @@ typedef enum {
     ExitCode_ReadWhoAmI_WriteThenReadCompare = 25,
     ExitCode_ReadWhoAmI_Write = 26, 
     ExitCode_ReadWhoAmI_Read = 27,
-    ExitCode_ReadWhoAmI_WriteReadCompare = 28,
-    ExitCode_ReadWhoAmI_PosixWrite = 29,
-    ExitCode_ReadWhoAmI_PosixRead = 30,
-    ExitCode_ReadWhoAmI_PosixCompare = 31,
-    ExitCode_AccelTimer_ReadZAccel = 32,
-    ExitCode_AccelTimer_ReadStatus = 33,
-
+    ExitCode_AccelTimer_ReadZAccel = 28,
+    ExitCode_AccelTimer_ReadStatus = 29,
 
 } ExitCode;
 
@@ -155,9 +148,9 @@ typedef enum {
 } IoTHubClientAuthenticationState;
 
 // Azure IoT definitions.
-static char *scopeId = NULL;                                      // ScopeId for DPS.
-static char *hubHostName = NULL;                                  // Azure IoT Hub Hostname.
-static char *deviceId = NULL;                                     // Device ID must be in lowercase.
+static char *scopeId = NULL;        // ScopeId for DPS.
+static char *hubHostName = NULL;    // Azure IoT Hub Hostname.
+static char *deviceId = NULL;       // Device ID must be in lowercase.
 static ConnectionType connectionType = ConnectionType_NotDefined; // Type of connection to use.
 static IoTHubClientAuthenticationState iotHubClientAuthenticationState =
     IoTHubClientAuthenticationState_NotAuthenticated; // Authentication state with respect to the
@@ -170,7 +163,9 @@ static const char NetworkInterface[] = "wlan0";
 
 // Function declarations
 static ExitCode ReadWhoAmI(void);
+#ifndef HTU21D
 static bool CheckTransferSize(const char *desc, size_t expectedBytes, ssize_t actualBytes);
+#endif 
 static ExitCode ResetAndSetSampleRange(void);
 static void SendEventCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result, void *context);
 static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsigned char *payload,
@@ -309,7 +304,6 @@ static void SensorPollTimerEventHandler(EventLoopTimer *timer)
 {
     Log_Debug("Read sensor data here!\n");
 
-    static int iter = 1;
 
     if (ConsumeEventLoopTimerEvent(timer) != 0) {
             exitCode = ExitCode_SensorTimer_Consume;
@@ -317,6 +311,8 @@ static void SensorPollTimerEventHandler(EventLoopTimer *timer)
     }
 
 #ifndef HTU21D
+    static int iter = 1;
+
     // Status register describes whether accelerometer is available.
     // DocID026899 Rev 10, S9.26, STATUS_REG (1Eh); [0] = XLDA
     static const uint8_t statusRegId = 0x1E;
@@ -348,11 +344,35 @@ static void SensorPollTimerEventHandler(EventLoopTimer *timer)
         // These constants are specific to LA_So where FS = +/-4g, as set in CTRL1_X.
         double g = (zRaw * 0.122) / 1000.0;
         Log_Debug("INFO: %d: vertical acceleration: %.2lfg\n", iter, g);
+
+        static float temperature = 20;
+        if (++temperature > 120) {
+            temperature = 20;
+        }
+        static float humidity = 0;
+        if (++humidity > 100) {
+            humidity = 0;
+        }
+
+        #define TELEMETRY_BUFFER_SIZE 100
+        char telemetryBuffer[TELEMETRY_BUFFER_SIZE];
+        int len = snprintf(telemetryBuffer, TELEMETRY_BUFFER_SIZE,
+                           "{\"Temperature\":%3.2f, \"Humidity\":%2.2f}", temperature, humidity);
+        if (len < 0 || len >= TELEMETRY_BUFFER_SIZE) {
+            Log_Debug("ERROR: Cannot write telemetry to buffer.\n");
+            return;
+        }
+        SendTelemetry(telemetryBuffer);
+
+
+
     }
 
     ++iter;
 
 #else  // HTU21D is defined
+
+    #define TELEMETRY_BUFFER_SIZE 100
 
     float temperature = 0.0;
     float humidity = 0.0;
@@ -367,6 +387,18 @@ static void SensorPollTimerEventHandler(EventLoopTimer *timer)
         Log_Debug("Error reading HTU21D sensor!\n");
     }
     
+    char telemetryBuffer[TELEMETRY_BUFFER_SIZE];
+    int len = snprintf(telemetryBuffer, TELEMETRY_BUFFER_SIZE,
+                       "{\"Temperature\":%3.2f, \"Humidity\":%2.2f}", temperature, humidity);
+    if (len < 0 || len >= TELEMETRY_BUFFER_SIZE) {
+        Log_Debug("ERROR: Cannot write telemetry to buffer.\n");
+        return;
+    }
+    SendTelemetry(telemetryBuffer);
+
+
+
+
 #endif 
 
 
@@ -536,6 +568,8 @@ static ExitCode ReadWhoAmI(void)
     return ExitCode_Success;
 }
 
+#ifndef HTU21D
+
 /// <summary>
 ///    Checks the number of transferred bytes for I2C functions and prints an error
 ///    message if the functions failed or if the number of bytes is different than
@@ -557,6 +591,7 @@ static bool CheckTransferSize(const char *desc, size_t expectedBytes, ssize_t ac
 
     return true;
 }
+#endif 
 
 /// <summary>
 ///     Resets the accelerometer and sets the sample range.
@@ -693,7 +728,7 @@ static ExitCode InitPeripheralsAndHandlers(void)
     }
 
 #ifdef HTU21D
-    htu21d_init(HTU21D_I2C_ADDR);
+    ResetAndSetSampleRange();
 #else 
 
     // This default address is used for POSIX read and write calls.  The AppLibs APIs take a target
@@ -941,18 +976,33 @@ static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsig
         desiredProperties = rootObject;
     }
 
-    // The desired properties should have a "StatusLED" object
-    int statusLedValue = json_object_dotget_boolean(desiredProperties, "StatusLED");
-    if (statusLedValue != -1) {
-        statusLedOn = statusLedValue == 1;
-        GPIO_SetValue(deviceTwinStatusLedGpioFd, statusLedOn ? GPIO_Value_Low : GPIO_Value_High);
-    }
+    // The desired properties should have a "PollPeriod" object
+    // Make sure that property exists, then read the value
+    if (json_object_has_value(desiredProperties, "PollPeriod")) {
 
-    // Report current status LED state
-    if (statusLedOn) {
-        TwinReportState("{\"StatusLED\":true}");
-    } else {
-        TwinReportState("{\"StatusLED\":false}");
+        // Read the new polling period
+        int newPollPeriod = (int)json_object_dotget_number(desiredProperties, "PollPeriod");
+        Log_Debug("PollPeriod = %d\n", newPollPeriod);
+    
+        if (newPollPeriod > 0) {
+
+            // Update the sensorPollTimer with the new value
+            struct timespec sensorCheckPeriod = {.tv_sec = (time_t)newPollPeriod,
+                                                              .tv_nsec = 0 * 1000};
+            SetEventLoopTimerPeriod(sensorPollTimer, &sensorCheckPeriod);
+            
+            // Send the reported property response with the updated PollPeroid value
+            #define BUFFER_SIZE 64
+            char reportedPropertyBuffer[BUFFER_SIZE];
+            int len =
+                snprintf(reportedPropertyBuffer, BUFFER_SIZE, "{\"PollPeriod\":%d}", newPollPeriod);
+            if (len < 0 || len >= BUFFER_SIZE) {
+                Log_Debug("ERROR: Cannot write response to buffer.\n");
+                goto cleanup;
+            }
+            
+            TwinReportState(reportedPropertyBuffer);
+        }
     }
 
 cleanup:

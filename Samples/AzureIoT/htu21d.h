@@ -28,10 +28,10 @@ extern int i2cFd;
 #define CRC_POLY					(0x131)	// CRC Polynomial: X^8 + X^5 + X^4 + 1
 
 // HTU21D BIT MASKS
-#define HTU21D_RESOLUTION_BIT7_MASK				(0x80)
-#define HTU21D_RESOLUTION_BIT0_MASK				(0x01)
-#define HTU21D_BATTERY_STATUS_MASK				(0x40)
-#define HTU21D_HEATER_STATUS_MASK				(0x04)
+#define HTU21D_RESOLUTION_BIT7_MASK				(0x80U)
+#define HTU21D_RESOLUTION_BIT0_MASK				(0x01U)
+#define HTU21D_BATTERY_STATUS_MASK				(0x40U)
+#define HTU21D_HEATER_STATUS_MASK				(0x04U)
 
 // HTU21D I2C Commands
 #define HTU21D_I2C_CMD_RESET					(0xFE)
@@ -68,7 +68,7 @@ extern 	uint32_t			htu21d_axi_address;
 extern	htu21d_resolution	htu21d_res;
 
 // Function Declarations
-void			htu21d_init(uint32_t axi_address);
+void			htu21d_init(void);
 htu21d_status	htu21d_reset(void);
 htu21d_status	htu21d_set_resolution(htu21d_resolution);
 htu21d_status	htu21d_read_temperature_and_relative_humidity(float* t, float* rh);

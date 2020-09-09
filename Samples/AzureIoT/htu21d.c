@@ -9,7 +9,6 @@
 #include "math.h"
 
 // HTU21D Global Variables
-uint32_t htu21d_axi_address;
 htu21d_resolution	htu21d_res;
 
 /// <summary>
@@ -38,10 +37,8 @@ void HAL_Delay(int delayTime)
  * Returns:		void
  *
  *********************************************************************/
-void htu21d_init(uint32_t axi_address)
-{
+void htu21d_init(void){
 
-	htu21d_axi_address = axi_address;
 	htu21d_res = htu21d_resolution_t_14b_rh_12b;
 
 	return;
@@ -111,8 +108,8 @@ htu21d_status	htu21d_set_resolution(htu21d_resolution res){
                                                    sizeof(tx_buf), rx_buf, sizeof(rx_buf));
 
 	// Modify user register to reflect resolution change
-        tx_buf[1] =
-            rx_buf[0] & ~(HTU21D_RESOLUTION_BIT7_MASK |HTU21D_RESOLUTION_BIT0_MASK); // Zero out bits 7 and 0
+        tx_buf[1] = rx_buf[0] & (uint8_t) ~(HTU21D_RESOLUTION_BIT7_MASK |
+                                            HTU21D_RESOLUTION_BIT0_MASK); // Zero out bits 7 and 0
 	if(res==htu21d_resolution_t_13b_rh_10b || res==htu21d_resolution_t_11b_rh_11b)
 		tx_buf[1] |= HTU21D_RESOLUTION_BIT7_MASK;	// Set bit 7
 	if(res==htu21d_resolution_t_12b_rh_8b || res==htu21d_resolution_t_11b_rh_11b)
@@ -190,7 +187,8 @@ htu21d_status	htu21d_read_temperature_and_relative_humidity(float* temperature, 
 	// CRC Temperature Data
 	if(CRC16(rx_buf) == true){
 		// Concatenate the received bytes into the 16 bit result
-		adc16 = 256*rx_buf[0] + (rx_buf[1]&0xFC);	//Maximum of 14 bits of resolution
+            adc16 = (uint16_t)(256 * rx_buf[0] +
+                    (rx_buf[1] & 0xFC)); // Maximum of 14 bits of resolution
 		// Use formula to convert ADC result to degrees Celcius
 		*temperature = (float)adc16 * (float)(pow(2, -16) * 175.72 - 46.85);
 	}else{
@@ -231,9 +229,9 @@ htu21d_status	htu21d_read_temperature_and_relative_humidity(float* temperature, 
 	// CRC relative humidity data
 	if(CRC16(rx_buf) == true){
 		//Concatenate the received bytes into the 16 bit result
-		adc16 = 256*rx_buf[0] + (rx_buf[1]&0xF0);
+		adc16 = (uint16_t)(256*rx_buf[0] + (rx_buf[1]&0xF0));
 		// Use formula to convert ADC result to relative humidity as a percentage
-		humidity = -6.0 + 125.0 * (float)adc16 / 65536.0;
+        humidity = (float)-6.0 + (float)125.0 * (float)adc16 / (float)65536.0;
 		// Bound humidity from 0% to 100%
 		if(humidity<0){
 			humidity = 0;
@@ -422,7 +420,7 @@ htu21d_status htu21d_disable_heater(void){
 	}
 
 	tx_buf[0] = HTU21D_I2C_CMD_WRITE_USER_REG;
-	tx_buf[1] = rx_buf[0] & ~HTU21D_HEATER_STATUS_MASK;
+	tx_buf[1] = (uint8_t)(rx_buf[0] & ~HTU21D_HEATER_STATUS_MASK);
 	//byte_count = XIic_Send(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)tx_buf, 2, XIIC_STOP);
     byte_count = I2CMaster_Write(i2cFd, HTU21D_I2C_ADDR, tx_buf, sizeof(tx_buf));
 	if(byte_count!=2){
@@ -448,19 +446,14 @@ htu21d_status htu21d_disable_heater(void){
  *********************************************************************/
 float htu21d_compute_dew_point(float Tamb, float RHamb){
 
-	float A = 8.1332;
-	float B = 1762.39;
-	float C = 235.66;
+	float A = 8.1332f;
+	float B = 1762.39f;
+	float C = 235.66f;
 	float PP_Tamb = (float)pow(10,A-B/(Tamb+C));
 	float Td = -(B/((float)log10(RHamb*PP_Tamb/100)-A)+C);
 
 	return Td;
 }
-
-
-
-
-
 
 /*********************************************************************
  *
@@ -480,7 +473,7 @@ float htu21d_compute_dew_point(float Tamb, float RHamb){
 int CRC8(uint8_t* data){
 	uint32_t div, poly;
 	int i;
-	div = 256*data[0]+data[1];
+	div = 256u*data[0]+data[1];
 	poly = CRC_POLY;
 	//printf("Divisor: 0x%X\n",(unsigned int)div);
 	for(i=0;i<8;i++){
@@ -518,7 +511,7 @@ int CRC16(uint8_t* data)
 {
 	uint32_t div, poly;
 	int i;
-	div = 256*256*data[0]+256*data[1]+data[2];
+	div = 256u*256u*data[0]+256u*data[1]+data[2];
 	poly = CRC_POLY;
 	//printf("Divisor: 0x%X\n",(unsigned int)div);
 	for(i=0;i<16;i++){
