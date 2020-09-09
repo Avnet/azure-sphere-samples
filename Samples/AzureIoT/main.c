@@ -45,6 +45,7 @@
 #include <applibs/networking.h>
 #include <applibs/i2c.h>
 
+//#define HTU21D
 
 // The following #include imports a "sample appliance" definition. This app comes with multiple
 // implementations of the sample appliance, each in a separate directory, which allow the code to
@@ -62,6 +63,7 @@
 
 #include "eventloop_timer_utilities.h"
 #include "parson.h" // Used to parse Device Twin messages.
+#include "htu21d.h"
 
 // Azure IoT SDK
 #include <iothub_client_core_common.h>
@@ -77,6 +79,9 @@
 /// application exit code. They must all be between zero and 255,
 /// where zero is reserved for successful termination.
 /// </summary>
+
+uint8_t temep;
+
 typedef enum {
     ExitCode_Success = 0,
 
@@ -204,7 +209,7 @@ static int sendMessageButtonGpioFd = -1;
 static int deviceTwinStatusLedGpioFd = -1;
 
 // Temperature Sensor
-static int i2cFd = -1;
+int i2cFd = -1;
 
 // Timer / polling
 static EventLoop *eventLoop = NULL;
@@ -212,10 +217,11 @@ static EventLoopTimer *buttonPollTimer = NULL;
 static EventLoopTimer *sensorPollTimer = NULL;
 static EventLoopTimer *azureTimer = NULL;
 
+#ifndef HTU21D
 // DocID026899 Rev 10, S6.1.1, I2C operation
 // SDO is tied to ground so the least significant bit of the address is zero.
 static const uint8_t lsm6ds3Address = 0x6A;
-
+#endif 
 
 // Azure IoT poll periods
 static const int AzureIoTDefaultPollPeriodSeconds = 1;        // poll azure iot every second
@@ -303,13 +309,14 @@ static void SensorPollTimerEventHandler(EventLoopTimer *timer)
 {
     Log_Debug("Read sensor data here!\n");
 
-        static int iter = 1;
+    static int iter = 1;
 
     if (ConsumeEventLoopTimerEvent(timer) != 0) {
             exitCode = ExitCode_SensorTimer_Consume;
         return;
     }
 
+#ifndef HTU21D
     // Status register describes whether accelerometer is available.
     // DocID026899 Rev 10, S9.26, STATUS_REG (1Eh); [0] = XLDA
     static const uint8_t statusRegId = 0x1E;
@@ -344,6 +351,23 @@ static void SensorPollTimerEventHandler(EventLoopTimer *timer)
     }
 
     ++iter;
+
+#else  // HTU21D is defined
+
+    float temperature = 0.0;
+    float humidity = 0.0;
+
+    if (htu21d_read_temperature_and_relative_humidity(&temperature, &humidity) ==
+        htu21d_status_ok) {
+    
+        Log_Debug("Temp: %.2f, Humidity %.2f\n", temperature, humidity);
+
+    } else 
+    {
+        Log_Debug("Error reading HTU21D sensor!\n");
+    }
+    
+#endif 
 
 
 }
@@ -487,6 +511,8 @@ static ExitCode ValidateUserConfiguration(void)
 /// </returns>
 static ExitCode ReadWhoAmI(void)
 {
+
+#ifndef HTU21D
     // DocID026899 Rev 10, S9.11, WHO_AM_I (0Fh); has fixed value 0x69.
     static const uint8_t whoAmIRegId = 0x0F;
     static const uint8_t expectedWhoAmI = 0x6C;
@@ -505,6 +531,8 @@ static ExitCode ReadWhoAmI(void)
         Log_Debug("ERROR: Unexpected WHO_AM_I value.\n");
         return ExitCode_ReadWhoAmI_WriteThenReadCompare;
     }
+
+#endif // HTU21D not defined
     return ExitCode_Success;
 }
 
@@ -539,6 +567,8 @@ static bool CheckTransferSize(const char *desc, size_t expectedBytes, ssize_t ac
 /// </returns>
 static ExitCode ResetAndSetSampleRange(void)
 {
+
+#ifndef HTU21D
     // Reset device to put registers into default state.
     // DocID026899 Rev 10, S9.14, CTRL3_C (12h); [0] = SW_RESET
     static const uint8_t ctrl3cRegId = 0x12;
@@ -565,6 +595,18 @@ static ExitCode ResetAndSetSampleRange(void)
                            transferredBytes)) {
         return ExitCode_SampleRange_SetRange;
     }
+
+#else // HTU21D is defined
+
+    if (htu21d_reset() != htu21d_status_ok) {
+        return ExitCode_SampleRange_Reset;
+    }
+
+    if (htu21d_set_resolution(htu21d_resolution_t_14b_rh_12b) != htu21d_status_ok) {
+        return ExitCode_SampleRange_Reset;
+    }
+
+#endif 
 
     return ExitCode_Success;
 }
@@ -650,6 +692,10 @@ static ExitCode InitPeripheralsAndHandlers(void)
         return ExitCode_Init_SetTimeout;
     }
 
+#ifdef HTU21D
+    htu21d_init(HTU21D_I2C_ADDR);
+#else 
+
     // This default address is used for POSIX read and write calls.  The AppLibs APIs take a target
     // address argument for each read or write.
     result = I2CMaster_SetDefaultTargetAddress(i2cFd, lsm6ds3Address);
@@ -658,6 +704,8 @@ static ExitCode InitPeripheralsAndHandlers(void)
                   strerror(errno));
         return ExitCode_Init_SetDefaultTarget;
     }
+
+#endif 
 
     ExitCode localExitCode = ReadWhoAmI();
     if (localExitCode != ExitCode_Success) {

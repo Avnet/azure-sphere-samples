@@ -6,12 +6,18 @@
  */
 
 #include <stdio.h>
-#include "xiic_l.h"
+#include <stdlib.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <bits/alltypes.h>
 #include <applibs/i2c.h>
-
+#include <time.h>
 
 #ifndef HTU21D_H_
 #define HTU21D_H_
+
+// Temperature Sensor
+extern int i2cFd;
 
 // HTU21D Constants
 #define HTU21D_I2C_ADDR				(0x40)	// 1000_000x
@@ -71,5 +77,5 @@ htu21d_status	htu21d_get_heater_status(htu21d_heater_status*);
 htu21d_status	htu21d_enable_heater(void);
 htu21d_status	htu21d_disable_heater(void);
 float			htu21d_compute_dew_point(float Tamb, float RHamb);
-int CRC8(char*);
-int CRC16(char*);
+int CRC8(uint8_t*);
+int CRC16(uint8_t*);
