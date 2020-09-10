@@ -58,7 +58,7 @@
 // azsphere_target_hardware_definition to "HardwareDefinitions/avnet_mt3620_sk".
 //
 // See https://aka.ms/AzureSphereHardwareDefinitions for more details.
-#include <hw/sample_appliance.h>
+#include "avnet_mt3620_sk.h"
 
 #include "eventloop_timer_utilities.h"
 #include "parson.h" // Used to parse Device Twin messages.
@@ -102,6 +102,7 @@ typedef enum {
     ExitCode_Init_SetDefaultTarget = 19,
     ExitCode_SampleRange_SetRange = 20,
     ExitCode_SampleRange_Reset = 21,
+    ExitCode_Init_StatusLeds = 22,
 } ExitCode;
 
 static volatile sig_atomic_t exitCode = ExitCode_Success;
@@ -180,6 +181,13 @@ static int sendMessageButtonGpioFd = -1;
 // Temperature Sensor
 int i2cFd = -1;
 
+#define RGB_NUM_LEDS 3
+//  Network Status LEDs
+static int gpioConnectionStateLedFds[RGB_NUM_LEDS] = {-1, -1, -1};
+static GPIO_Id gpioConnectionStateLeds[RGB_NUM_LEDS] = {AVNET_MT3620_SK_USER_LED_RED, 
+                                                        AVNET_MT3620_SK_USER_LED_GREEN, 
+                                                        AVNET_MT3620_SK_USER_LED_BLUE};
+
 // Timer / polling
 static EventLoop *eventLoop = NULL;
 static EventLoopTimer *buttonPollTimer = NULL;
@@ -202,6 +210,48 @@ static const char *cmdLineArgsUsageText =
     "\"<scope_id>\"]\n"
     "Direction connection type: \" CmdArgs \": [\"--ConnectionType\", \"Direct\", "
     "\"--Hostname\", \"<azureiothub_hostname>\", \"--DeviceID\", \"<device_id>\"]\n";
+
+#define RGB_LED1_INDEX 0
+#define RGB_LED2_INDEX 1
+#define RGB_LED3_INDEX 2
+
+// Define which LED to light up for each case
+typedef enum {
+    RGB_No_Connections = 0b000,
+    RGB_No_Network = 0b001,        // No WiFi connection
+    RGB_Network_Connected = 0b010, // Connected to Azure, not IoT Hub
+    RGB_IoT_Hub_Connected = 0b100, // Connected to IoT Hub
+} RGB_Status;
+
+// Using the bits set in networkStatus, turn on/off the status LEDs
+void setConnectionStatusLed(RGB_Status networkStatus)
+{
+    GPIO_SetValue(gpioConnectionStateLedFds[RGB_LED1_INDEX],
+                  (networkStatus & (1 << RGB_LED1_INDEX)) ? GPIO_Value_Low : GPIO_Value_High);
+    GPIO_SetValue(gpioConnectionStateLedFds[RGB_LED2_INDEX],
+                  (networkStatus & (1 << RGB_LED2_INDEX)) ? GPIO_Value_Low : GPIO_Value_High);
+    GPIO_SetValue(gpioConnectionStateLedFds[RGB_LED3_INDEX],
+                  (networkStatus & (1 << RGB_LED3_INDEX)) ? GPIO_Value_Low : GPIO_Value_High);
+}
+
+// Determine the network status and call the routine to set the status LEDs
+void updateConnectionStatusLed(void)
+{
+    RGB_Status networkStatus;
+    bool bIsNetworkReady = false;
+
+    if (Networking_IsNetworkingReady(&bIsNetworkReady) < 0) {
+        networkStatus = RGB_No_Connections; // network error
+    } else {
+        networkStatus = !bIsNetworkReady ? RGB_No_Network // no Network, No WiFi
+                                         : ((iothubClientHandle != NULL)
+                                                ? RGB_IoT_Hub_Connected   // IoT hub connected
+                                                : RGB_Network_Connected); // only Network connected
+    }
+
+    // Set the LEDs based on the current status
+    setConnectionStatusLed(networkStatus);
+}
 
 /// <summary>
 ///     Signal handler for termination requests. This handler must be async-signal-safe.
@@ -321,6 +371,9 @@ static void AzureTimerEventHandler(EventLoopTimer *timer)
         exitCode = ExitCode_AzureTimer_Consume;
         return;
     }
+
+    // Keep the status LEDs updated
+    updateConnectionStatusLed();
 
     // Check whether the device is connected to the internet.
     Networking_InterfaceConnectionStatus status;
@@ -482,10 +535,20 @@ static ExitCode InitPeripheralsAndHandlers(void)
 
     // Open SAMPLE_BUTTON_1 GPIO as input
     Log_Debug("Opening SAMPLE_BUTTON_1 as input.\n");
-    sendMessageButtonGpioFd = GPIO_OpenAsInput(SAMPLE_BUTTON_1);
+    sendMessageButtonGpioFd = GPIO_OpenAsInput(AVNET_MT3620_SK_USER_BUTTON_A);
     if (sendMessageButtonGpioFd == -1) {
         Log_Debug("ERROR: Could not open SAMPLE_BUTTON_1: %s (%d).\n", strerror(errno), errno);
         return ExitCode_Init_MessageButton;
+    }
+
+  	// Initailize the user LED FDs,
+    for (int i = 0; i < RGB_NUM_LEDS; i++) {
+        gpioConnectionStateLedFds[i] = GPIO_OpenAsOutput(gpioConnectionStateLeds[i],
+                                                         GPIO_OutputMode_PushPull, GPIO_Value_High);
+        if (gpioConnectionStateLedFds[i] < 0) {
+            Log_Debug("ERROR: Could not open LED GPIO: %s (%d).\n", strerror(errno), errno);
+            return ExitCode_Init_StatusLeds;
+        }
     }
 
     // Set up a timer to poll for button events.
@@ -504,7 +567,6 @@ static ExitCode InitPeripheralsAndHandlers(void)
         return ExitCode_Init_ButtonPollTimer;
     }
 
-
     azureIoTPollPeriodSeconds = AzureIoTDefaultPollPeriodSeconds;
     struct timespec azureTelemetryPeriod = {.tv_sec = azureIoTPollPeriodSeconds, .tv_nsec = 0};
     azureTimer =
@@ -513,7 +575,7 @@ static ExitCode InitPeripheralsAndHandlers(void)
         return ExitCode_Init_AzureTimer;
     }
 
-    i2cFd = I2CMaster_Open(SAMPLE_LSM6DSO_I2C);
+    i2cFd = I2CMaster_Open(AVNET_MT3620_SK_ISU2_I2C);
     if (i2cFd == -1) {
         Log_Debug("ERROR: I2CMaster_Open: errno=%d (%s)\n", errno, strerror(errno));
         return ExitCode_Init_OpenMaster;
@@ -563,6 +625,15 @@ static void ClosePeripheralsAndHandlers(void)
     Log_Debug("Closing file descriptors\n");
 
     CloseFdAndPrintError(sendMessageButtonGpioFd, "SendMessageButton");
+
+    // Turn the WiFi connection status LEDs off
+    setConnectionStatusLed(RGB_No_Connections);
+
+    // Close the status LED file descriptors
+    for (int i = 0; i < RGB_NUM_LEDS; i++) {
+        CloseFdAndPrintError(gpioConnectionStateLedFds[i], "ConnectionStatusLED");
+    }    
+
     CloseFdAndPrintError(i2cFd, "i2c");
 }
 
@@ -585,7 +656,10 @@ static void ConnectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result,
     iotHubClientAuthenticationState = IoTHubClientAuthenticationState_Authenticated;
 
     // Send static device twin properties when connection is established.
-    TwinReportState("{\"manufacturer\":\"Avnet\",\"model\":\"Azure Sphere Starter Kit TE HTU21D Demo\", \"versionString\": \"TE_Demo_V1\"}");
+    TwinReportState("{\"manufacturer\":\"Avnet\",\"model\":\"Azure Sphere Starter Kit TE HTU21D Demo\", \"versionString\": \"TE_Demo_V2\"}");
+
+    // Since the connection state just changed, update the status LEDs
+    updateConnectionStatusLed();
 }
 
 /// <summary>
