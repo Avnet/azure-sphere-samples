@@ -78,7 +78,7 @@
 /// where zero is reserved for successful termination.
 /// </summary>
 
-//#define HTU21D
+#define HTU21D
 
 typedef enum {
     ExitCode_Success = 0,
@@ -180,7 +180,6 @@ static const char *GetAzureSphereProvisioningResultString(
     AZURE_SPHERE_PROV_RETURN_VALUE provisioningResult);
 static void SendTelemetry(const char *jsonMessage);
 static void SetUpAzureIoTHubClient(void);
-static void SendSimulatedTelemetry(void);
 static void ButtonPollTimerEventHandler(EventLoopTimer *timer);
 static void SensorPollTimerEventHandler(EventLoopTimer *timer);
 static bool IsButtonPressed(int fd, GPIO_Value_Type *oldState);
@@ -227,7 +226,6 @@ static int azureIoTPollPeriodSeconds = -1;
 
 // State variables
 static GPIO_Value_Type sendMessageButtonState = GPIO_Value_High;
-static bool statusLedOn = false;
 
 // Usage text for command line arguments in application manifest.
 static const char *cmdLineArgsUsageText =
@@ -302,9 +300,6 @@ static void ButtonPollTimerEventHandler(EventLoopTimer *timer)
 /// </summary>
 static void SensorPollTimerEventHandler(EventLoopTimer *timer)
 {
-    Log_Debug("Read sensor data here!\n");
-
-
     if (ConsumeEventLoopTimerEvent(timer) != 0) {
             exitCode = ExitCode_SensorTimer_Consume;
         return;
@@ -382,22 +377,19 @@ static void SensorPollTimerEventHandler(EventLoopTimer *timer)
     
         Log_Debug("Temp: %.2f, Humidity %.2f\n", temperature, humidity);
 
+        char telemetryBuffer[TELEMETRY_BUFFER_SIZE];
+        int len = snprintf(telemetryBuffer, TELEMETRY_BUFFER_SIZE,
+                           "{\"Temperature\":%3.2f, \"Humidity\":%2.2f}", temperature, humidity);
+        if (len < 0 || len >= TELEMETRY_BUFFER_SIZE) {
+            Log_Debug("ERROR: Cannot write telemetry to buffer.\n");
+            return;
+        }
+        SendTelemetry(telemetryBuffer);
+
     } else 
     {
         Log_Debug("Error reading HTU21D sensor!\n");
     }
-    
-    char telemetryBuffer[TELEMETRY_BUFFER_SIZE];
-    int len = snprintf(telemetryBuffer, TELEMETRY_BUFFER_SIZE,
-                       "{\"Temperature\":%3.2f, \"Humidity\":%2.2f}", temperature, humidity);
-    if (len < 0 || len >= TELEMETRY_BUFFER_SIZE) {
-        Log_Debug("ERROR: Cannot write telemetry to buffer.\n");
-        return;
-    }
-    SendTelemetry(telemetryBuffer);
-
-
-
 
 #endif 
 
@@ -1172,26 +1164,6 @@ static void ReportedStateCallback(int result, void *context)
 }
 
 #define TELEMETRY_BUFFER_SIZE 100
-
-/// <summary>
-///     Generate simulated telemetry and send to Azure IoT Hub.
-/// </summary>
-void SendSimulatedTelemetry(void)
-{
-    // Generate a simulated temperature.
-    static float temperature = 50.0f;                    // starting temperature
-    float delta = ((float)(rand() % 41)) / 20.0f - 1.0f; // between -1.0 and +1.0
-    temperature += delta;
-
-    char telemetryBuffer[TELEMETRY_BUFFER_SIZE];
-    int len =
-        snprintf(telemetryBuffer, TELEMETRY_BUFFER_SIZE, "{\"Temperature\":%3.2f}", temperature);
-    if (len < 0 || len >= TELEMETRY_BUFFER_SIZE) {
-        Log_Debug("ERROR: Cannot write telemetry to buffer.\n");
-        return;
-    }
-    SendTelemetry(telemetryBuffer);
-}
 
 /// <summary>
 ///     Check whether a given button has just been pressed.

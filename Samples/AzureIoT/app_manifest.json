@@ -3,9 +3,9 @@
   "Name": "TE_Demo",
   "ComponentId": "F7439530-BA37-4158-9438-43DA72FD8899",
   "EntryPoint": "/bin/app",
-  "CmdArgs": [ "--ConnectionType", "DPS", "--ScopeID", "0ne0008CB04" ],
+  "CmdArgs": [ "--ConnectionType", "DPS", "--ScopeID", "0ne000745DC" ],
   "Capabilities": {
-    "AllowedConnections": [ "global.azure-devices-provisioning.net", "BW-IoTHub.azure-devices.net" ],
+    "AllowedConnections": [ "global.azure-devices-provisioning.net", "BW-IoTHub.azure-devices.net", "fae-IotHub.azure-devices.net" ],
     "Gpio": [ "$SAMPLE_BUTTON_1", "$SAMPLE_LED" ],
     "I2cMaster": [ "$SAMPLE_LSM6DSO_I2C" ],
     "DeviceAuthentication": "8d34f65c-532e-4dcf-a1d6-3e811c1e5c68"

@@ -12,6 +12,12 @@
 #include <bits/alltypes.h>
 #include <applibs/i2c.h>
 #include <time.h>
+#include <applibs/log.h>
+#include <errno.h>
+#include <string.h>
+#include "math.h"
+
+
 
 #ifndef HTU21D_H_
 #define HTU21D_H_
@@ -22,7 +28,7 @@ extern int i2cFd;
 // HTU21D Constants
 #define HTU21D_I2C_ADDR				(0x40)	// 1000_000x
 #define HTU21D_14B_CONV_DELAY_MS	(50)	// Datasheet claims max conversion time of 50ms for 14 bit resolution
-#define HTU21D_13B_CONV_DELAY_MS	(25)	// Datasheet claims max conversion time of 25ms for 13 bit resolution
+#define HTU21D_13B_CONV_DELAY_MS    (25)    // Datasheet claims max conversion time of 25ms for 13 bit resolution
 #define HTU21D_12B_CONV_DELAY_MS	(13)	// Datasheet claims max conversion time of 13ms for 12 bit resolution
 #define HTU21D_11B_CONV_DELAY_MS	(7)		// Datasheet claims max conversion time of  7ms for 11 bit resolution
 #define CRC_POLY					(0x131)	// CRC Polynomial: X^8 + X^5 + X^4 + 1

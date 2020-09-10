@@ -6,7 +6,6 @@
  */
 
 #include "htu21d.h"
-#include "math.h"
 
 // HTU21D Global Variables
 htu21d_resolution	htu21d_res;
@@ -18,10 +17,9 @@ void HAL_Delay(int delayTime)
 {
     struct timespec ts;
     ts.tv_sec = 0;
-    ts.tv_nsec = delayTime * 10000;
+    ts.tv_nsec = delayTime * 1000000;
     nanosleep(&ts, NULL);
 }
-
 
 /*********************************************************************
  *
@@ -40,8 +38,7 @@ void HAL_Delay(int delayTime)
 void htu21d_init(void){
 
 	htu21d_res = htu21d_resolution_t_14b_rh_12b;
-
-	return;
+    return;
 }
 
 
@@ -65,7 +62,7 @@ htu21d_status htu21d_reset(void){
 	// Send I2C reset command
 	tx_buf[0] = HTU21D_I2C_CMD_RESET;
 //	byte_count = XIic_Send(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)tx_buf, 1, XIIC_STOP);
-    byte_count = I2CMaster_Write(i2cFd, HTU21D_I2C_ADDR, tx_buf, sizeof(tx_buf));
+	byte_count = I2CMaster_Write(i2cFd, HTU21D_I2C_ADDR, tx_buf, sizeof(tx_buf));
 	if(byte_count!=1){
 		return htu21d_status_i2c_transfer_error;
 	}
@@ -108,7 +105,7 @@ htu21d_status	htu21d_set_resolution(htu21d_resolution res){
                                                    sizeof(tx_buf), rx_buf, sizeof(rx_buf));
 
 	// Modify user register to reflect resolution change
-        tx_buf[1] = rx_buf[0] & (uint8_t) ~(HTU21D_RESOLUTION_BIT7_MASK |
+    tx_buf[1] = rx_buf[0] & (uint8_t) ~(HTU21D_RESOLUTION_BIT7_MASK |
                                             HTU21D_RESOLUTION_BIT0_MASK); // Zero out bits 7 and 0
 	if(res==htu21d_resolution_t_13b_rh_10b || res==htu21d_resolution_t_11b_rh_11b)
 		tx_buf[1] |= HTU21D_RESOLUTION_BIT7_MASK;	// Set bit 7
@@ -179,18 +176,24 @@ htu21d_status	htu21d_read_temperature_and_relative_humidity(float* temperature, 
 
 	// Read temperature ADC result
 	//byte_count = XIic_Recv(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)rx_buf, 3, XIIC_STOP);
-    byte_count = I2CMaster_Read(i2cFd, HTU21D_I2C_ADDR, rx_buf, sizeof(rx_buf));
-	if(byte_count!=3){
-		return htu21d_status_i2c_transfer_error;
+	byte_count = I2CMaster_Read(i2cFd, HTU21D_I2C_ADDR, rx_buf, sizeof(rx_buf));
+		if(byte_count!=3){
+			return htu21d_status_i2c_transfer_error;
 	}
+
+	Log_Debug("Raw Temp Data: ");
+    for (int j = 0; j < 3; j++) {
+        Log_Debug("[0x%X] ", rx_buf[j]);
+    }
+    Log_Debug("\n");
 
 	// CRC Temperature Data
 	if(CRC16(rx_buf) == true){
-		// Concatenate the received bytes into the 16 bit result
-            adc16 = (uint16_t)(256 * rx_buf[0] +
-                    (rx_buf[1] & 0xFC)); // Maximum of 14 bits of resolution
-		// Use formula to convert ADC result to degrees Celcius
-		*temperature = (float)adc16 * (float)(pow(2, -16) * 175.72 - 46.85);
+
+		// Remove lowest 2 bits because they are status
+        adc16 = ((rx_buf[0] << 8) | rx_buf[1]) & 0xFFFC;
+        *temperature = ((adc16 / 65536.0) * 175.72) - 46.85;
+
 	}else{
 		*temperature = 0;
 		return htu21d_status_crc_error;
@@ -226,12 +229,18 @@ htu21d_status	htu21d_read_temperature_and_relative_humidity(float* temperature, 
 		return htu21d_status_i2c_transfer_error;
 	}
 
+		Log_Debug("Raw Hum Data: ");
+        for (int j = 0; j < 3; j++) {
+            Log_Debug("[0x%X] ", rx_buf[j]);
+        }
+        Log_Debug("\n");
+
 	// CRC relative humidity data
 	if(CRC16(rx_buf) == true){
 		//Concatenate the received bytes into the 16 bit result
-		adc16 = (uint16_t)(256*rx_buf[0] + (rx_buf[1]&0xF0));
+		adc16 = (256*rx_buf[0] + (rx_buf[1]&0xF0));
 		// Use formula to convert ADC result to relative humidity as a percentage
-        humidity = (float)-6.0 + (float)125.0 * (float)adc16 / (float)65536.0;
+        humidity = -6.0 + 125.0 * adc16 / 65536.0;
 		// Bound humidity from 0% to 100%
 		if(humidity<0){
 			humidity = 0;
