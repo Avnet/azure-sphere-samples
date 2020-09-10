@@ -17,8 +17,6 @@
 #include <string.h>
 #include "math.h"
 
-
-
 #ifndef HTU21D_H_
 #define HTU21D_H_
 
@@ -70,7 +68,6 @@ typedef enum htu21d_heater_status{
 #endif /* HTU21D_H_ */
 
 // External variables
-extern 	uint32_t			htu21d_axi_address;
 extern	htu21d_resolution	htu21d_res;
 
 // Function Declarations

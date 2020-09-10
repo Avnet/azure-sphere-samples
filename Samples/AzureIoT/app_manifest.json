@@ -1,6 +1,6 @@
 {
   "SchemaVersion": 1,
-  "Name": "TE_Demo",
+  "Name": "TE_Demo_V1",
   "ComponentId": "F7439530-BA37-4158-9438-43DA72FD8899",
   "EntryPoint": "/bin/app",
   "CmdArgs": [ "--ConnectionType", "DPS", "--ScopeID", "0ne000745DC" ],

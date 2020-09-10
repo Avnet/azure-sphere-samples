@@ -61,16 +61,13 @@ htu21d_status htu21d_reset(void){
 
 	// Send I2C reset command
 	tx_buf[0] = HTU21D_I2C_CMD_RESET;
-//	byte_count = XIic_Send(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)tx_buf, 1, XIIC_STOP);
 	byte_count = I2CMaster_Write(i2cFd, HTU21D_I2C_ADDR, tx_buf, sizeof(tx_buf));
 	if(byte_count!=1){
 		return htu21d_status_i2c_transfer_error;
 	}
 
 	// Wait 10ms
-//	usleep(10000);
     HAL_Delay(10);
-
 	return htu21d_status_ok;
 }
 
@@ -100,7 +97,6 @@ htu21d_status	htu21d_set_resolution(htu21d_resolution res){
 	// Read user register
 	tx_buf[0] = HTU21D_I2C_CMD_READ_USER_REG;
 
-	//	byte_count = XIic_Send(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)tx_buf, 1, XIIC_STOP);
 	byte_count = I2CMaster_WriteThenRead(i2cFd, HTU21D_I2C_ADDR, tx_buf,
                                                    sizeof(tx_buf), rx_buf, sizeof(rx_buf));
 
@@ -114,7 +110,6 @@ htu21d_status	htu21d_set_resolution(htu21d_resolution res){
 
 	// Write user register
 	tx_buf[0] = HTU21D_I2C_CMD_WRITE_USER_REG;
-	//byte_count = XIic_Send(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)tx_buf, 2, XIIC_STOP);
     byte_count = I2CMaster_Write(i2cFd, HTU21D_I2C_ADDR, tx_buf, sizeof(tx_buf));
 	if(byte_count!=2){
 		return htu21d_status_i2c_transfer_error;
@@ -152,7 +147,6 @@ htu21d_status	htu21d_read_temperature_and_relative_humidity(float* temperature, 
 
 	// Start temperature ADC conversion
 	tx_buf[0] = HTU21D_I2C_CMD_MEAS_TEMP_WITHOUT_HOLD;
-//	byte_count = XIic_Send(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)tx_buf, 1, XIIC_STOP);
     byte_count = I2CMaster_Write(i2cFd, HTU21D_I2C_ADDR, tx_buf, sizeof(tx_buf));
 
 	if(byte_count!=1){
@@ -161,32 +155,27 @@ htu21d_status	htu21d_read_temperature_and_relative_humidity(float* temperature, 
 
 	// Wait only as long as is needed for the resolution that is currently set
 	if(htu21d_res == htu21d_resolution_t_11b_rh_11b){
-		//usleep(HTU21D_11B_CONV_DELAY_MS * 1000);
         HAL_Delay(HTU21D_11B_CONV_DELAY_MS);
 	}else if(htu21d_res == htu21d_resolution_t_12b_rh_8b){
-		//usleep(HTU21D_12B_CONV_DELAY_MS * 1000);
         HAL_Delay(HTU21D_12B_CONV_DELAY_MS);
 	}else if(htu21d_res == htu21d_resolution_t_13b_rh_10b){
-		//usleep(HTU21D_13B_CONV_DELAY_MS * 1000);
         HAL_Delay(HTU21D_13B_CONV_DELAY_MS);
 	}else{
-		//usleep(HTU21D_14B_CONV_DELAY_MS * 1000);
         HAL_Delay(HTU21D_14B_CONV_DELAY_MS);
 	}
 
 	// Read temperature ADC result
-	//byte_count = XIic_Recv(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)rx_buf, 3, XIIC_STOP);
 	byte_count = I2CMaster_Read(i2cFd, HTU21D_I2C_ADDR, rx_buf, sizeof(rx_buf));
 		if(byte_count!=3){
 			return htu21d_status_i2c_transfer_error;
 	}
 
-	Log_Debug("Raw Temp Data: ");
+/*	Log_Debug("Raw Temp Data: ");
     for (int j = 0; j < 3; j++) {
         Log_Debug("[0x%X] ", rx_buf[j]);
     }
     Log_Debug("\n");
-
+*/
 	// CRC Temperature Data
 	if(CRC16(rx_buf) == true){
 
@@ -201,7 +190,6 @@ htu21d_status	htu21d_read_temperature_and_relative_humidity(float* temperature, 
 
 	// Start relative humidity ADC conversion
 	tx_buf[0] = HTU21D_I2C_CMD_MEAS_HUM_WITHOUT_HOLD;
-	//byte_count = XIic_Send(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)tx_buf, 1, XIIC_STOP);
 	byte_count = I2CMaster_Write(i2cFd, HTU21D_I2C_ADDR, tx_buf, sizeof(tx_buf));
 	if(byte_count!=1){
 		return htu21d_status_i2c_transfer_error;
@@ -209,31 +197,27 @@ htu21d_status	htu21d_read_temperature_and_relative_humidity(float* temperature, 
 
 	// Wait only as long as is needed for the resolution that is currently set
 	if(htu21d_res == htu21d_resolution_t_11b_rh_11b){
-		//usleep(HTU21D_11B_CONV_DELAY_MS * 1000);
         HAL_Delay(HTU21D_11B_CONV_DELAY_MS);
 	}else if(htu21d_res == htu21d_resolution_t_12b_rh_8b){
-		//usleep(HTU21D_12B_CONV_DELAY_MS * 1000);
         HAL_Delay(HTU21D_12B_CONV_DELAY_MS);
 	}else if(htu21d_res == htu21d_resolution_t_13b_rh_10b){
-		//usleep(HTU21D_13B_CONV_DELAY_MS * 1000);
         HAL_Delay(HTU21D_13B_CONV_DELAY_MS);
 	}else{
-		//usleep(HTU21D_14B_CONV_DELAY_MS * 1000);
         HAL_Delay(HTU21D_14B_CONV_DELAY_MS);
 	}
 
 	// Read relative humidity ADC result
-	//byte_count = XIic_Recv(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)rx_buf, 3, XIIC_STOP);
     byte_count = I2CMaster_Read(i2cFd, HTU21D_I2C_ADDR, rx_buf, sizeof(rx_buf));
 	if(byte_count!=3){
 		return htu21d_status_i2c_transfer_error;
 	}
 
-		Log_Debug("Raw Hum Data: ");
+/*		Log_Debug("Raw Hum Data: ");
         for (int j = 0; j < 3; j++) {
             Log_Debug("[0x%X] ", rx_buf[j]);
         }
         Log_Debug("\n");
+*/
 
 	// CRC relative humidity data
 	if(CRC16(rx_buf) == true){
@@ -278,13 +262,7 @@ htu21d_status htu21d_get_battery_status(htu21d_battery_status* batt_stat){
 
 	// Read user register
 	tx_buf[0] = HTU21D_I2C_CMD_READ_USER_REG;
-//	byte_count = XIic_Send(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)tx_buf, 1, XIIC_STOP);
-//	if(byte_count!=1){
-//		return htu21d_status_i2c_transfer_error;
-//	}
-//        byte_count =
-//            XIic_Recv(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)rx_buf, 1, XIIC_STOP);
-   byte_count = I2CMaster_WriteThenRead(i2cFd, HTU21D_I2C_ADDR, tx_buf, sizeof(tx_buf),
+    byte_count = I2CMaster_WriteThenRead(i2cFd, HTU21D_I2C_ADDR, tx_buf, sizeof(tx_buf),
                                              rx_buf, sizeof(rx_buf));
 
 	if(byte_count!=1+1){
@@ -322,15 +300,7 @@ htu21d_status htu21d_get_heater_status(htu21d_heater_status* heat_stat){
 	int byte_count=0;
 
 	tx_buf[0] = HTU21D_I2C_CMD_READ_USER_REG;
-//        byte_count =
-//            XIic_Send(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)tx_buf, 1, XIIC_STOP);
-//	if(byte_count!=1){
-//		return htu21d_status_i2c_transfer_error;
-//	}
-
-//	byte_count =
-//            XIic_Recv(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)rx_buf, 1, XIIC_STOP);
-     byte_count = I2CMaster_WriteThenRead(i2cFd, HTU21D_I2C_ADDR, tx_buf, sizeof(tx_buf),
+    byte_count = I2CMaster_WriteThenRead(i2cFd, HTU21D_I2C_ADDR, tx_buf, sizeof(tx_buf),
                                              rx_buf, sizeof(rx_buf));
 
 	if(byte_count!=1+1){
@@ -366,14 +336,6 @@ htu21d_status htu21d_enable_heater(void){
 	int byte_count=0;
 
 	tx_buf[0] = HTU21D_I2C_CMD_READ_USER_REG;
-//        byte_count =
-//            XIic_Send(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)tx_buf, 1, XIIC_STOP);
-//	if(byte_count!=1){
-//		return htu21d_status_i2c_transfer_error;
-//	}
-
-//	byte_count =
-//            XIic_Recv(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)rx_buf, 1, XIIC_STOP);
 	byte_count = I2CMaster_WriteThenRead(i2cFd, HTU21D_I2C_ADDR, tx_buf, sizeof(tx_buf),
                                              rx_buf, sizeof(rx_buf));
 
@@ -383,8 +345,6 @@ htu21d_status htu21d_enable_heater(void){
 
 	tx_buf[0] = HTU21D_I2C_CMD_WRITE_USER_REG;
 	tx_buf[1] = rx_buf[0] | HTU21D_HEATER_STATUS_MASK;
-//        byte_count =
-//            XIic_Send(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)tx_buf, 2, XIIC_STOP);
     byte_count = I2CMaster_Write(i2cFd, HTU21D_I2C_ADDR, tx_buf, sizeof(tx_buf));
 	if(byte_count!=2){
 		return htu21d_status_i2c_transfer_error;
@@ -413,14 +373,6 @@ htu21d_status htu21d_disable_heater(void){
 	int byte_count=0;
 
 	tx_buf[0] = HTU21D_I2C_CMD_READ_USER_REG;
-//        byte_count =
-//            XIic_Send(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)tx_buf, 1, XIIC_STOP);
-//	if(byte_count!=1){
-//		return htu21d_status_i2c_transfer_error;
-//	}
-
-//	byte_count =
-//            XIic_Recv(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)rx_buf, 1, XIIC_STOP);
     byte_count = I2CMaster_WriteThenRead(i2cFd, HTU21D_I2C_ADDR, tx_buf, sizeof(tx_buf),
                                              rx_buf, sizeof(rx_buf));
 
@@ -430,7 +382,6 @@ htu21d_status htu21d_disable_heater(void){
 
 	tx_buf[0] = HTU21D_I2C_CMD_WRITE_USER_REG;
 	tx_buf[1] = (uint8_t)(rx_buf[0] & ~HTU21D_HEATER_STATUS_MASK);
-	//byte_count = XIic_Send(htu21d_axi_address, HTU21D_I2C_ADDR, (uint8_t*)tx_buf, 2, XIIC_STOP);
     byte_count = I2CMaster_Write(i2cFd, HTU21D_I2C_ADDR, tx_buf, sizeof(tx_buf));
 	if(byte_count!=2){
 		return htu21d_status_i2c_transfer_error;

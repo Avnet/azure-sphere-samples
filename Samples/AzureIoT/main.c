@@ -78,50 +78,29 @@
 /// where zero is reserved for successful termination.
 /// </summary>
 
-#define HTU21D
-
 typedef enum {
     ExitCode_Success = 0,
-
     ExitCode_TermHandler_SigTerm = 1,
-
     ExitCode_Main_EventLoopFail = 2,
-
     ExitCode_ButtonTimer_Consume = 3,
-
     ExitCode_AzureTimer_Consume = 4,
-
     ExitCode_Init_EventLoop = 5,
     ExitCode_Init_MessageButton = 6,
-    ExitCode_Init_OrientationButton = 7,
-    ExitCode_Init_TwinStatusLed = 8,
-    ExitCode_Init_ButtonPollTimer = 9,
-    ExitCode_Init_AzureTimer = 10,
-
-    ExitCode_IsButtonPressed_GetValue = 11,
-
-    ExitCode_Validate_ConnectionType = 12,
-    ExitCode_Validate_ScopeId = 13,
-    ExitCode_Validate_IotHubHostname = 14,
-    ExitCode_Validate_DeviceId = 15,
-
-    ExitCode_InterfaceConnectionStatus_Failed = 16,
-    
-    ExitCode_SensorTimer_Consume = 17,
-
-    ExitCode_Init_OpenMaster = 18,
-    ExitCode_Init_SetBusSpeed = 19,
-    ExitCode_Init_SetTimeout = 20,
-    ExitCode_Init_SetDefaultTarget = 21,
-    ExitCode_SampleRange_SetRange = 22,
-    ExitCode_SampleRange_Reset = 23,
-    ExitCode_ReadWhoAmI_WriteThenRead = 24,
-    ExitCode_ReadWhoAmI_WriteThenReadCompare = 25,
-    ExitCode_ReadWhoAmI_Write = 26, 
-    ExitCode_ReadWhoAmI_Read = 27,
-    ExitCode_AccelTimer_ReadZAccel = 28,
-    ExitCode_AccelTimer_ReadStatus = 29,
-
+    ExitCode_Init_ButtonPollTimer = 7,
+    ExitCode_Init_AzureTimer = 8,
+    ExitCode_IsButtonPressed_GetValue = 9,
+    ExitCode_Validate_ConnectionType = 10,
+    ExitCode_Validate_ScopeId = 11,
+    ExitCode_Validate_IotHubHostname = 12,
+    ExitCode_Validate_DeviceId = 13,
+    ExitCode_InterfaceConnectionStatus_Failed = 14,
+    ExitCode_SensorTimer_Consume = 15,
+    ExitCode_Init_OpenMaster = 16,
+    ExitCode_Init_SetBusSpeed = 17,
+    ExitCode_Init_SetTimeout = 18,
+    ExitCode_Init_SetDefaultTarget = 19,
+    ExitCode_SampleRange_SetRange = 20,
+    ExitCode_SampleRange_Reset = 21,
 } ExitCode;
 
 static volatile sig_atomic_t exitCode = ExitCode_Success;
@@ -162,10 +141,6 @@ static const int deviceIdForDaaCertUsage = 1; // A constant used to direct the I
 static const char NetworkInterface[] = "wlan0";
 
 // Function declarations
-static ExitCode ReadWhoAmI(void);
-#ifndef HTU21D
-static bool CheckTransferSize(const char *desc, size_t expectedBytes, ssize_t actualBytes);
-#endif 
 static ExitCode ResetAndSetSampleRange(void);
 static void SendEventCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result, void *context);
 static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsigned char *payload,
@@ -199,9 +174,6 @@ static void ClosePeripheralsAndHandlers(void);
 // Button
 static int sendMessageButtonGpioFd = -1;
 
-// LED
-static int deviceTwinStatusLedGpioFd = -1;
-
 // Temperature Sensor
 int i2cFd = -1;
 
@@ -210,12 +182,6 @@ static EventLoop *eventLoop = NULL;
 static EventLoopTimer *buttonPollTimer = NULL;
 static EventLoopTimer *sensorPollTimer = NULL;
 static EventLoopTimer *azureTimer = NULL;
-
-#ifndef HTU21D
-// DocID026899 Rev 10, S6.1.1, I2C operation
-// SDO is tied to ground so the least significant bit of the address is zero.
-static const uint8_t lsm6ds3Address = 0x6A;
-#endif 
 
 // Azure IoT poll periods
 static const int AzureIoTDefaultPollPeriodSeconds = 1;        // poll azure iot every second
@@ -305,68 +271,6 @@ static void SensorPollTimerEventHandler(EventLoopTimer *timer)
         return;
     }
 
-#ifndef HTU21D
-    static int iter = 1;
-
-    // Status register describes whether accelerometer is available.
-    // DocID026899 Rev 10, S9.26, STATUS_REG (1Eh); [0] = XLDA
-    static const uint8_t statusRegId = 0x1E;
-    uint8_t status;
-    ssize_t transferredBytes = I2CMaster_WriteThenRead(
-        i2cFd, lsm6ds3Address, &statusRegId, sizeof(statusRegId), &status, sizeof(status));
-    if (!CheckTransferSize("I2CMaster_WriteThenRead (STATUS_REG)",
-                           sizeof(statusRegId) + sizeof(status), transferredBytes)) {
-        exitCode = ExitCode_AccelTimer_ReadStatus;
-        return;
-    }
-
-    if ((status & 0x1) == 0) {
-        Log_Debug("INFO: %d: No accelerometer data.\n", iter);
-    } else {
-        // Read two-byte Z-axis output register.
-        // DocID026899 Rev 10, S9.38, OUTZ_L_XL (2Ch)
-        static const uint8_t outZLXl = 0x2C;
-        int16_t zRaw;
-        transferredBytes = I2CMaster_WriteThenRead(i2cFd, lsm6ds3Address, &outZLXl, sizeof(outZLXl),
-                                                   (uint8_t *)&zRaw, sizeof(zRaw));
-        if (!CheckTransferSize("I2CMaster_WriteThenRead (OUTZ_L_XL)",
-                               sizeof(outZLXl) + sizeof(zRaw), transferredBytes)) {
-            exitCode = ExitCode_AccelTimer_ReadZAccel;
-            return;
-        }
-
-        // DocID026899 Rev 10, S4.1, Mechanical characteristics
-        // These constants are specific to LA_So where FS = +/-4g, as set in CTRL1_X.
-        double g = (zRaw * 0.122) / 1000.0;
-        Log_Debug("INFO: %d: vertical acceleration: %.2lfg\n", iter, g);
-
-        static float temperature = 20;
-        if (++temperature > 120) {
-            temperature = 20;
-        }
-        static float humidity = 0;
-        if (++humidity > 100) {
-            humidity = 0;
-        }
-
-        #define TELEMETRY_BUFFER_SIZE 100
-        char telemetryBuffer[TELEMETRY_BUFFER_SIZE];
-        int len = snprintf(telemetryBuffer, TELEMETRY_BUFFER_SIZE,
-                           "{\"Temperature\":%3.2f, \"Humidity\":%2.2f}", temperature, humidity);
-        if (len < 0 || len >= TELEMETRY_BUFFER_SIZE) {
-            Log_Debug("ERROR: Cannot write telemetry to buffer.\n");
-            return;
-        }
-        SendTelemetry(telemetryBuffer);
-
-
-
-    }
-
-    ++iter;
-
-#else  // HTU21D is defined
-
     #define TELEMETRY_BUFFER_SIZE 100
 
     float temperature = 0.0;
@@ -390,10 +294,6 @@ static void SensorPollTimerEventHandler(EventLoopTimer *timer)
     {
         Log_Debug("Error reading HTU21D sensor!\n");
     }
-
-#endif 
-
-
 }
 
 
@@ -525,67 +425,6 @@ static ExitCode ValidateUserConfiguration(void)
 }
 
 /// <summary>
-///     Demonstrates three ways of reading data from the attached device.
-//      This also works as a smoke test to ensure the Azure Sphere device can talk to
-///     the I2C device.
-/// </summary>
-/// <returns>
-///     ExitCode_Success on success; otherwise another ExitCode value which indicates
-///     the specific failure.
-/// </returns>
-static ExitCode ReadWhoAmI(void)
-{
-
-#ifndef HTU21D
-    // DocID026899 Rev 10, S9.11, WHO_AM_I (0Fh); has fixed value 0x69.
-    static const uint8_t whoAmIRegId = 0x0F;
-    static const uint8_t expectedWhoAmI = 0x6C;
-    uint8_t actualWhoAmI;
-
-    // Read register value using AppLibs combination read and write API.
-    ssize_t transferredBytes =
-        I2CMaster_WriteThenRead(i2cFd, lsm6ds3Address, &whoAmIRegId, sizeof(whoAmIRegId),
-                                &actualWhoAmI, sizeof(actualWhoAmI));
-    if (!CheckTransferSize("I2CMaster_WriteThenRead (WHO_AM_I)",
-                           sizeof(whoAmIRegId) + sizeof(actualWhoAmI), transferredBytes)) {
-        return ExitCode_ReadWhoAmI_WriteThenRead;
-    }
-    Log_Debug("INFO: WHO_AM_I=0x%02x (I2CMaster_WriteThenRead)\n", actualWhoAmI);
-    if (actualWhoAmI != expectedWhoAmI) {
-        Log_Debug("ERROR: Unexpected WHO_AM_I value.\n");
-        return ExitCode_ReadWhoAmI_WriteThenReadCompare;
-    }
-
-#endif // HTU21D not defined
-    return ExitCode_Success;
-}
-
-#ifndef HTU21D
-
-/// <summary>
-///    Checks the number of transferred bytes for I2C functions and prints an error
-///    message if the functions failed or if the number of bytes is different than
-///    expected number of bytes to be transferred.
-/// </summary>
-/// <returns>true on success, or false on failure</returns>
-static bool CheckTransferSize(const char *desc, size_t expectedBytes, ssize_t actualBytes)
-{
-    if (actualBytes < 0) {
-        Log_Debug("ERROR: %s: errno=%d (%s)\n", desc, errno, strerror(errno));
-        return false;
-    }
-
-    if (actualBytes != (ssize_t)expectedBytes) {
-        Log_Debug("ERROR: %s: transferred %zd bytes; expected %zd\n", desc, actualBytes,
-                  expectedBytes);
-        return false;
-    }
-
-    return true;
-}
-#endif 
-
-/// <summary>
 ///     Resets the accelerometer and sets the sample range.
 /// </summary>
 /// <returns>
@@ -594,37 +433,6 @@ static bool CheckTransferSize(const char *desc, size_t expectedBytes, ssize_t ac
 /// </returns>
 static ExitCode ResetAndSetSampleRange(void)
 {
-
-#ifndef HTU21D
-    // Reset device to put registers into default state.
-    // DocID026899 Rev 10, S9.14, CTRL3_C (12h); [0] = SW_RESET
-    static const uint8_t ctrl3cRegId = 0x12;
-    const uint8_t resetCommand[] = {ctrl3cRegId, 0x01};
-    ssize_t transferredBytes =
-        I2CMaster_Write(i2cFd, lsm6ds3Address, resetCommand, sizeof(resetCommand));
-    if (!CheckTransferSize("I2CMaster_Write (CTRL3_C)", sizeof(resetCommand), transferredBytes)) {
-        return ExitCode_SampleRange_Reset;
-    }
-
-    // Wait for device to come out of reset.
-    uint8_t ctrl3c;
-    do {
-        transferredBytes = I2CMaster_WriteThenRead(i2cFd, lsm6ds3Address, &ctrl3cRegId,
-                                                   sizeof(ctrl3cRegId), &ctrl3c, sizeof(ctrl3c));
-    } while (!(transferredBytes == (sizeof(ctrl3cRegId) + sizeof(ctrl3c)) && (ctrl3c & 0x1) == 0));
-
-    // Use sample range +/- 4g, with 12.5Hz frequency.
-    // DocID026899 Rev 10, S9.12, CTRL1_XL (10h)
-    static const uint8_t setCtrl1XlCommand[] = {0x10, 0x18};
-    transferredBytes =
-        I2CMaster_Write(i2cFd, lsm6ds3Address, setCtrl1XlCommand, sizeof(setCtrl1XlCommand));
-    if (!CheckTransferSize("I2CMaster_Write (CTRL1_XL)", sizeof(setCtrl1XlCommand),
-                           transferredBytes)) {
-        return ExitCode_SampleRange_SetRange;
-    }
-
-#else // HTU21D is defined
-
     if (htu21d_reset() != htu21d_status_ok) {
         return ExitCode_SampleRange_Reset;
     }
@@ -632,8 +440,6 @@ static ExitCode ResetAndSetSampleRange(void)
     if (htu21d_set_resolution(htu21d_resolution_t_14b_rh_12b) != htu21d_status_ok) {
         return ExitCode_SampleRange_Reset;
     }
-
-#endif 
 
     return ExitCode_Success;
 }
@@ -665,15 +471,6 @@ static ExitCode InitPeripheralsAndHandlers(void)
     if (sendMessageButtonGpioFd == -1) {
         Log_Debug("ERROR: Could not open SAMPLE_BUTTON_1: %s (%d).\n", strerror(errno), errno);
         return ExitCode_Init_MessageButton;
-    }
-
-    // SAMPLE_LED is used to show Device Twin settings state
-    Log_Debug("Opening SAMPLE_LED as output.\n");
-    deviceTwinStatusLedGpioFd =
-        GPIO_OpenAsOutput(SAMPLE_LED, GPIO_OutputMode_PushPull, GPIO_Value_High);
-    if (deviceTwinStatusLedGpioFd == -1) {
-        Log_Debug("ERROR: Could not open SAMPLE_LED: %s (%d).\n", strerror(errno), errno);
-        return ExitCode_Init_TwinStatusLed;
     }
 
     // Set up a timer to poll for button events.
@@ -719,25 +516,7 @@ static ExitCode InitPeripheralsAndHandlers(void)
         return ExitCode_Init_SetTimeout;
     }
 
-#ifdef HTU21D
     ResetAndSetSampleRange();
-#else 
-
-    // This default address is used for POSIX read and write calls.  The AppLibs APIs take a target
-    // address argument for each read or write.
-    result = I2CMaster_SetDefaultTargetAddress(i2cFd, lsm6ds3Address);
-    if (result != 0) {
-        Log_Debug("ERROR: I2CMaster_SetDefaultTargetAddress: errno=%d (%s)\n", errno,
-                  strerror(errno));
-        return ExitCode_Init_SetDefaultTarget;
-    }
-
-#endif 
-
-    ExitCode localExitCode = ReadWhoAmI();
-    if (localExitCode != ExitCode_Success) {
-        return localExitCode;
-    }
 
     return ExitCode_Success;
 }
@@ -768,13 +547,7 @@ static void ClosePeripheralsAndHandlers(void)
 
     Log_Debug("Closing file descriptors\n");
 
-    // Leave the LEDs off
-    if (deviceTwinStatusLedGpioFd >= 0) {
-        GPIO_SetValue(deviceTwinStatusLedGpioFd, GPIO_Value_High);
-    }
-
     CloseFdAndPrintError(sendMessageButtonGpioFd, "SendMessageButton");
-    CloseFdAndPrintError(deviceTwinStatusLedGpioFd, "StatusLed");
     CloseFdAndPrintError(i2cFd, "i2c");
 }
 
