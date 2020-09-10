@@ -8,6 +8,7 @@
     "AllowedConnections": [ "global.azure-devices-provisioning.net", "BW-IoTHub.azure-devices.net", "fae-IotHub.azure-devices.net" ],
     "Gpio": [ "$SAMPLE_BUTTON_1", "$SAMPLE_LED" ],
     "I2cMaster": [ "$SAMPLE_LSM6DSO_I2C" ],
+    "WifiConfig": true,
     "DeviceAuthentication": "8d34f65c-532e-4dcf-a1d6-3e811c1e5c68"
   },
   "ApplicationType": "Default"

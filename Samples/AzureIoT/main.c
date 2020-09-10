@@ -44,6 +44,7 @@
 #include <applibs/log.h>
 #include <applibs/networking.h>
 #include <applibs/i2c.h>
+#include <applibs/wificonfig.h>
 
 // The following #include imports a "sample appliance" definition. This app comes with multiple
 // implementations of the sample appliance, each in a separate directory, which allow the code to
@@ -164,6 +165,8 @@ static void ParseCommandLineArguments(int argc, char *argv[]);
 static bool SetUpAzureIoTHubClientWithDaa(void);
 static bool SetUpAzureIoTHubClientWithDps(void);
 static bool IsConnectionReadyToSendTelemetry(void);
+void addWifiNetwork(char *ssid, int ssidLength, char *psk, int pskLength);
+bool networkExists(char *ssid, int ssidLength);
 
 // Initialization/Cleanup
 static ExitCode InitPeripheralsAndHandlers(void);
@@ -229,6 +232,18 @@ int main(int argc, char *argv[])
     }
 
     exitCode = InitPeripheralsAndHandlers();
+
+    // Make sure that the expected wifi network is configured on this device
+    if (!networkExists("IOTDEMO", 7)) {
+        Log_Debug("Add network IOTDEMO\n");
+        addWifiNetwork("IOTDEMO", 7, "iotDemo1", 8);
+    }
+
+    // Make sure that the expected wifi network is configured on this device
+    if (!networkExists("IOTDEMO1", 8)) {
+        Log_Debug("Add network IOTDEMO1\n");
+        addWifiNetwork("IOTDEMO1", 8, "iotDemo1", 8);
+    }
 
     // Main loop
     while (exitCode == ExitCode_Success) {
@@ -959,4 +974,67 @@ static bool IsButtonPressed(int fd, GPIO_Value_Type *oldState)
     }
 
     return isButtonPressed;
+}
+
+// Add a wifi network to the device.
+void addWifiNetwork(char *ssid, int ssidLength, char *psk, int pskLength)
+{
+
+    Log_Debug("Adding ssid: %.*s\n", ssidLength, ssid);
+
+    // Store the new Wi-Fi network
+    int networkId = WifiConfig_AddNetwork();
+    int configResult = (networkId == -1) ? -1 : 0;
+
+    // Create a new network entry.
+    if (configResult != -1) {
+        configResult = WifiConfig_SetSSID(networkId, ssid, ssidLength);
+    }
+
+    // Set the access point security attributes
+    if (configResult != -1) {
+        configResult = WifiConfig_SetSecurityType(networkId, WifiConfig_Security_Wpa2_Psk);
+        if (configResult != -1) {
+            configResult = WifiConfig_SetPSK(networkId, psk, pskLength);
+        }
+    }
+
+    // Use targeted scan if requested
+    if (configResult != -1) {
+        configResult = WifiConfig_SetTargetedScanEnabled(networkId, true);
+    }
+
+    // Enable the network
+    if (configResult != -1) {
+        configResult = WifiConfig_SetNetworkEnabled(networkId, true);
+    }
+
+    // If an error occured after creating the network but before persisting it,
+    // then forget the network
+    if (networkId != -1 && configResult == -1) {
+        WifiConfig_ForgetNetworkById(networkId);
+    }
+
+    if (configResult == 0) {
+        Log_Debug("INFO: Wi-Fi network details stored successfully.\n");
+    } else {
+        Log_Debug("ERROR: Store Wi-Fi network failed: %s (%d).\n", strerror(errno), errno);
+    }
+}
+
+// Check to see if a network already exists on a system
+// Check to see if a network already exists on a system
+bool networkExists(char *ssid, int ssidLength)
+{
+    size_t numNetworks = WifiConfig_GetStoredNetworkCount();
+    WifiConfig_StoredNetwork networkArray[numNetworks];
+    WifiConfig_GetStoredNetworks(networkArray, numNetworks);
+
+    for (int i = 0; i < numNetworks; i++) {
+
+        if (strncmp(ssid, networkArray[i].ssid, ssidLength) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
