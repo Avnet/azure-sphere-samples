@@ -30,30 +30,24 @@ This file implements routines requied to parse BT510 advertisement messages rece
 //#define ENABLE_MSG_DEBUG
 
 // Define the Json string for reporting BT510 telemetry data
-static const char bt510TelemetryJsonObject[] = "[{\"id\":\"gateway1\",\"d\":[]},{\"id\":\"%s\",\"d\":[%s]}]";
-
-// Temperature related messages
-static const char bt510TempTelemetryJsonObject[] = "{\"mac\":\"%s\",\"rssi\":%s,\"temperature\":%2.2f}";
-static const char bt510TempAlarmTelemetryJsonObject[] = "{\"mac\":\"%s\",\"rssi\":%s,\"temperature\":%2.2f,\"tempAlarmEnum\":%d}";
-
-// Battery related messages
-static const char bt510BatteryTelemetryJsonObject[] =     "{\"mac\":\"%s\",\"rssi\":%s,\"battery\":%2.3f}";
-static const char bt510BatteryAlarmTelemetryJsonObject[] = "{\"mac\":\"%s\",\"rssi\":%s,\"battery\":%2.3f,\"batteryAlarmEnum\":%d}";
+static const char bt510TemperatureJsonObject[] = "\"temp%s\":%2.2f,";
+static const char bt510BatteryJsonObject[] = "\"bat%s\":%2.3f,";
+static const char bt510RssiJsonObject[] = "\"rssi%s\":%d,";
 
 // Magnet related message
-static const char bt510MagnetTelemetryJsonObject[] = "{\"mac\":\"%s\",\"rssi\":%s,\"magnet\":%d}";
+static const char bt510MagnetTelemetryJsonObject[] = "{\"magnet%s\":%d}";
 
 // Movement related message
-static const char bt510MovementTelemetryJsonObject[] = "{\"mac\":\"%s\",\"rssi\":%s,\"movement\":1}";
+static const char bt510MovementTelemetryJsonObject[] = "{\"movement%s\":1}";
 
 // Reset message
-static const char bt510ResetAlarmTelemetryJsonObject[] = "{\"mac\":\"%s\",\"rssi\":%s,\"reset\":\"true\",\"resetEnum\":%d}";
+static const char bt510ResetAlarmTelemetryJsonObject[] = "{\"reset%s\":\"true\",\"resetEnum\":%d}";
 
 // Initial device twin message with device details captured
 #ifdef TARGET_QIIO_200
 static const char bt510DeviceTwinsonObject[] = "{\"BT510deviceName\":\"%s\",\"BT510mac\":\"%s\",\"BT510fwVersion\":\"%s\",\"BT510bootloaderVersion\":\"%s\"}";
 #else
-static const char bt510DeviceTwinsonObject[] = "{\"deviceName\":\"%s\",\"mac\":\"%s\",\"fwVersion\":\"%s\",\"bootloaderVersion\":\"%s\"}";
+static const char bt510DeviceTwinsonObject[] = "{\"deviceName%s\":\"%s\",\"mac%s\":\"%s\",\"fwVersion%s\":\"%s\",\"bootloaderVersion%s\":\"%s\"}";
 #endif
 
 /*
@@ -163,17 +157,26 @@ enum flag_enum {
     FLAG_MAGNET_STATE
 };
 
+#define MAX_BT510_DEVICES 10
+#define BT510_ADDRESS_LEN 18
+
 // BT510 Global variables
 
 // Array to hold specific data for each BT510 detected by the system
 typedef struct BT510Device {
-    char bdAddress[18];
+    char bt510Name[MAX_NAME_LENGTH + 1];
+    char bdAddress[BT510_ADDRESS_LEN];
     uint16_t recordNumber;
     bool lastContactIsOpen;
+    float lastTemperature;
+    float lastBattery;
+    int lastRssi;
 } BT510Device_t;
 
 extern void SendTelemetry(const char *);
 extern void TwinReportState(const char *jsonState);
+extern BT510Device_t BT510DeviceList[MAX_BT510_DEVICES];
+extern char authorizedDeviceList[MAX_BT510_DEVICES][BT510_ADDRESS_LEN];
 
 // BT510 Specific routines
 int stringToInt(char *, size_t);
@@ -186,4 +189,6 @@ void getRxRssi(char *rxRssi, BT510Message_t *);
 void parseFlags(uint16_t);
 int getBT510DeviceIndex(char *);
 int addBT510DeviceToList(char *, BT510Message_t *);
-void processData(int);
+void processData(int, int);
+bool isDeviceAuthorized(char *);
+void bt510SendTelemetry(void);
