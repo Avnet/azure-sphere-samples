@@ -56,6 +56,7 @@
 #include <applibs/storage.h>
 #include <applibs/eventloop.h>
 #include <applibs/uart.h>
+#include <applibs/i2c.h>
 
 // The following #include imports a "sample appliance" definition. This app comes with multiple
 // implementations of the sample appliance, each in a separate directory, which allow the code to
@@ -77,6 +78,8 @@
 #include "build_options.h"
 #include "router.h"
 #include "iotConnect.h"
+#include "htu21d.h"
+
 
 // Azure IoT SDK
 #include <iothub_client_core_common.h>
@@ -176,6 +179,9 @@ static int uartFd = -1;
 // BLE PMOD signals
 static int nRfnResetFd = -1;
 static int nRfnAutorunFd = -1;
+
+// htu21d Temperature Sensor
+int i2cFd = -1;
 
 #define RGB_NUM_LEDS 3
 //  Guardian LEDs
@@ -544,6 +550,26 @@ static ExitCode InitPeripheralsAndHandlers(void)
         return ExitCode_Init_TelemetryTimer;
     }
 
+    // Init i2c for htu21d sensor
+        i2cFd = I2CMaster_Open(AVNET_MT3620_SK_ISU2_I2C);
+    if (i2cFd == -1) {
+        Log_Debug("ERROR: I2CMaster_Open: errno=%d (%s)\n", errno, strerror(errno));
+        return ExitCode_Init_OpenMaster;
+    }
+
+    int result = I2CMaster_SetBusSpeed(i2cFd, I2C_BUS_SPEED_STANDARD);
+    if (result != 0) {
+        Log_Debug("ERROR: I2CMaster_SetBusSpeed: errno=%d (%s)\n", errno, strerror(errno));
+        return ExitCode_Init_SetBusSpeed;
+    }
+
+    result = I2CMaster_SetTimeout(i2cFd, 100);
+    if (result != 0) {
+        Log_Debug("ERROR: I2CMaster_SetTimeout: errno=%d (%s)\n", errno, strerror(errno));
+        return ExitCode_Init_SetTimeout;
+    }
+
+    ResetAndSetSampleRange();
 
 #ifdef USE_IOT_CONNECT
     if (IoTConnectInit() != ExitCode_Success) {
@@ -591,6 +617,7 @@ static void ClosePeripheralsAndHandlers(void)
     }
 
     CloseFdAndPrintError(uartFd, "Uart");
+    CloseFdAndPrintError(i2cFd, "i2c");
 }
 
 /// <summary>

@@ -1,5 +1,7 @@
 #include "bt510.h"
 #include "math.h"
+#include "htu21d.h"
+
 // Send the telemetry message
 #ifdef USE_IOT_CONNECT
 #include "iotConnect.h"
@@ -17,7 +19,12 @@ char bootloaderVersion[] = "  .  .  \0";
 char rxRssi[] = "-xx\0";
 uint32_t sensorData;
 uint16_t sensorFlags;
-// uint16_t recordNumber = -1;
+
+// Variable to hold the local (htu21d) sensor readings
+float htu21dTemperature = 0.0;
+float htu21dHumidity = 0.0;
+
+
 
 float temperature;
 bool contactIsOpen;
@@ -398,7 +405,7 @@ void processData(int recordType, int deviceIndex) {
         sendTelemetryNow = true;
         break;
     case RT_MAGNET:
-        Log_Debug("\nRT_MAGNET is %s\n", ((sensorFlags >> FLAG_MAGNET_STATE) & 1U) ? "Far": "Near");
+//        Log_Debug("\nRT_MAGNET is %s\n", ((sensorFlags >> FLAG_MAGNET_STATE) & 1U) ? "Far": "Near");
         
         BT510DeviceList[currentBT510DeviceIndex].lastContactIsOpen =
             (sensorFlags >> FLAG_MAGNET_STATE) & 1U;
@@ -411,7 +418,7 @@ void processData(int recordType, int deviceIndex) {
         SendTelemetry(telemetryBuffer);
 
     case RT_MOVEMENT:
-        Log_Debug("\nRT_MOVEMENT\n");
+//        Log_Debug("\nRT_MOVEMENT\n");
 
         snprintf(telemetryBuffer, sizeof(telemetryBuffer), bt510MovementTelemetryJsonObject, BT510DeviceList[deviceIndex].bt510Name);
 
@@ -471,12 +478,16 @@ void bt510SendTelemetry(){
     // Define a flag to see if we found new telemetry data to send
     bool updatedValuesFound = false;
 
+    // Define a flag to use for each device to determine if we need to append the rssi telemetry
+    bool deviceWasUpdated = false;
+
     // Dynamically build the telemetry JSON document to handle from 1 to 10 BT510 devices.  
+    // Telemetry will always have the htu21d temperature + humidity telemetry at the beginning
     // For example the JSON for 1 BT510 . . . 
-    // {"tempDev1":24.3, "batDev1": 3.23, "rssiDev1": -71}
+    // {"temp": 22.4, "humidity: 23.3, "tempDev1":24.3, "batDev1": 3.23, "rssiDev1": -71}
     //
     // The JSON for two BT510s . . .
-    // {"tempDev1":24.3, "batDev1": 3.23, "tempDev2":24.3, "batDev2": 3.23, "rssiDev1": -70, , "rssiDev2": -65}
+    // {"temp": 22.4, "humidity: 23.3,"tempDev1":24.3, "batDev1": 3.23, "tempDev2":24.3, "batDev2": 3.23, "rssiDev1": -70, , "rssiDev2": -65}
     // Where Dev1 and Dev2 are dynamic names pulled from each BT510s advertised name
     
     // If we don't have any devices in the list, then bail.  Nothing to see here, move along . . . 
@@ -484,26 +495,46 @@ void bt510SendTelemetry(){
         return;
     }
 
-    // A    llocate enough memory to hold the dynamic JSON document, we know how large the object is, but we need to add additional
+    // Read the HTU21D sensor before sending telemetry
+    if (htu21d_read_temperature_and_relative_humidity(&htu21dTemperature, &htu21dHumidity) ==
+        htu21d_status_ok) {
+    
+        Log_Debug("Htu21D: Temp: %.2f, Humidity %.2f\n", htu21dTemperature, htu21dHumidity);
+
+    } else 
+    {
+        Log_Debug("Error reading HTU21D sensor!\n");
+    }
+
+    // Allocate enough memory to hold the dynamic JSON document, we know how large the object is, but we need to add additional
     // memory for the device name and the data that we'll be adding to the telemetry message
     char *telemetryBuffer = calloc((size_t)(numBT510DevicesInList * (               // Multiply the size for one device by the number of devices we have
-                                   (size_t)(strlen(bt510TemperatureJsonObject) +    // Size of the temperature json template
-                                   (size_t)(strlen(bt510BatteryJsonObject) +        // Size of the battery json template
-                                   (size_t)(strlen(bt510RssiJsonObject) +           // Size of the rssi json template
+                                   (size_t)strlen(htu21dTempHumidityJsonObject) +   // Size of the htu21d json template
+                                   (size_t)strlen(bt510TemperatureJsonObject) +     // Size of the temperature json template
+                                   (size_t)strlen(bt510BatteryJsonObject) +         // Size of the battery json template
+                                   (size_t)strlen(bt510RssiJsonObject) +            // Size of the rssi json template
                                    (size_t)32 +                                     // Allow for the temperature and battery data (the numbers)
-                                   (size_t)48))))),                                 // Allow for the device name i.e., "Basement + Coach"
+                                   (size_t)MAX_NAME_LENGTH)),                       // Allow for the device name i.e., "Basement + Coach"
                                    sizeof(char));
-    
-    // Declare an arry that we use to construct each of the different telemetry parts i.e., "temperature, 23.22"
-    char newTelemetryString[strlen(bt510TemperatureJsonObject) + 16 + 32];
 
-    // Start the build the Json
-    strcat(telemetryBuffer, "{");
+    // Verify we got the memory requested
+    if(telemetryBuffer == NULL){
+        exitCode = ExitCode_Init_TelemetryCallocFailed;
+        return;
+    }
+
+    // Declare an array that we use to construct each of the different telemetry parts i.e., "temperature, 23.22"
+    char newTelemetryString[strlen(htu21dTempHumidityJsonObject) + 16 + MAX_NAME_LENGTH];
+
+    // Start to build the dynamic telemetry message.  This first string contains the opening '{'
+    snprintf(newTelemetryString, sizeof(newTelemetryString), htu21dTempHumidityJsonObject, 
+                                                             htu21dTemperature, 
+                                                             htu21dHumidity);
+    // Add it to the telemetry message
+    strcat(telemetryBuffer,newTelemetryString);
 
     for(int i = 0; i < numBT510DevicesInList; i++){
         
-        // static const char bt510TelemetryJsonObject[] = "{\"temperature%s\":%2.2f,,\"battery%s\":%2.3f}";
-
         // Add temperature data for the current device, if it's been updated
         if(!isnan(BT510DeviceList[i].lastTemperature)){
 
@@ -518,6 +549,7 @@ void bt510SendTelemetry(){
 
             // Set the flag that tells the logic to send the message to Azure
             updatedValuesFound = true;
+            deviceWasUpdated = true;
 
         }
 
@@ -535,11 +567,12 @@ void bt510SendTelemetry(){
 
             // Set the flag that tells the logic to send the message to Azure
             updatedValuesFound = true;
+            deviceWasUpdated = true;
 
         }
 
-        // If we found updated values to send, then tack on a rssi reading
-        if(updatedValuesFound){
+        // If we found updated values to send, then tack on the current rssi reading
+        if(deviceWasUpdated){
 
             snprintf(newTelemetryString, sizeof(newTelemetryString), bt510RssiJsonObject, 
                                                                      BT510DeviceList[i].bt510Name, 
@@ -547,6 +580,8 @@ void bt510SendTelemetry(){
             // Add it to the telemetry message
             strcat(telemetryBuffer,newTelemetryString);
             
+            // Clear the flag, we only want to send the rssi if we've received an update, otherwise it's old data
+            deviceWasUpdated = false;
         }
     }
 

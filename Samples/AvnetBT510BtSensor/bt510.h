@@ -33,6 +33,8 @@ This file implements routines requied to parse BT510 advertisement messages rece
 static const char bt510TemperatureJsonObject[] = "\"temp%s\":%2.2f,";
 static const char bt510BatteryJsonObject[] = "\"bat%s\":%2.3f,";
 static const char bt510RssiJsonObject[] = "\"rssi%s\":%d,";
+static const char htu21dTempHumidityJsonObject[] = "{\"temp\":%2.2f,\"humidity\":%2.2f,";
+//"{\"temp\":%2.2f, \"humidity\":%2.2f,";
 
 // Magnet related message
 static const char bt510MagnetTelemetryJsonObject[] = "{\"magnet%s\":%d}";

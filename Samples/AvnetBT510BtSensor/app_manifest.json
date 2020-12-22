@@ -16,6 +16,7 @@
       "$SAMPLE_PMOD_PIN8"
     ],
     "Uart": [ "$SAMPLE_PMOD_UART" ],
+    "I2cMaster": [ "$AVNET_MT3620_SK_ISU2_I2C" ],
     "DeviceAuthentication": "00000000-0000-0000-0000-000000000000",
     "MutableStorage": { "SizeKB": 8 },
     "NetworkConfig": true
