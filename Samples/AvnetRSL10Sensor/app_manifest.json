@@ -1,0 +1,26 @@
+{
+  "SchemaVersion": 1,
+  "Name": "AzureSpherePOC_V1.1",
+  "ComponentId": "CF67D732-8BAC-4D36-89AD-4E9344FBBB1F",
+  "EntryPoint": "/bin/app",
+  "CmdArgs": [ "--ConnectionType", "DPS", "--ScopeID", "0ne0008CB04" ],
+  "Capabilities": {
+    "AllowedConnections": [
+      "global.azure-devices-provisioning.net",
+      "poc-iotc-sphere-iothub-eu.azure-devices.net",
+      "BW-IoTHub.azure-devices.net",
+      "router.qiio.com"],
+    "Gpio": [
+      "$SAMPLE_RGBLED_RED",
+      "$SAMPLE_RGBLED_GREEN",
+      "$SAMPLE_RGBLED_BLUE",
+      "$SAMPLE_PMOD_PIN9",
+      "$SAMPLE_PMOD_PIN8"
+    ],
+    "Uart": [ "$SAMPLE_PMOD_UART" ],
+    "DeviceAuthentication": "8d34f65c-532e-4dcf-a1d6-3e811c1e5c68",
+    "MutableStorage": { "SizeKB": 8 },
+    "NetworkConfig": true
+  },
+  "ApplicationType": "Default"
+}
