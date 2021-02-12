@@ -39,22 +39,56 @@ static const char rsl10TelemetryJsonObject[] = "{\"temp%s\":%2.2f, \"humidity%s\
 // Initial device twin message with device details captured
 static const char rsl10DeviceTwinsonObject[] = "{\"mac%s\":\"%s\",\"Version%s\":\"%s\"}";
 
-//  33 00AB8967452301 8B380D0C61118C9BE95C9298092331F0 00 0E09 720F CC1799 FFFF -53
-
-// Define the content of the message from the BT510.
-typedef struct RSL10Message {
-//    char msgSendRxId[3]; // BS1 or BR1
-//    uint8_t msgColon[1];
-    uint8_t len[1 * 2];
+// Define a generic message structure.  We'll use this to extract the BdAddress and message ID
+// to determine if and how to process the message
+typedef struct RSL10MessageHeader {
+    char msgSendRxId[3]; // ESD
     uint8_t BdAddress[7 * 2];
-    uint8_t uuid[16 * 2];
+} RSL10MessageHeader_t;
+
+
+// Define the content of the environmental message from the RSL10.
+// ESD 00AB8967452301 00 CC09 4F12 B8069B FFFF -50
+typedef struct RSL10EnvironmentalMessage {
+    char msgSendRxId[3]; // ESD
+    uint8_t BdAddress[7 * 2];
     uint8_t version[1 * 2];
     uint8_t temperature[2 * 2];
     uint8_t humidity[2 * 2];
     uint8_t pressure[3 * 2];
     uint8_t ambiantLight[2 * 2];
-    uint8_t rssi[3 * 2];
-} Rsl10Message_t;
+    char blankSpace[1];
+    char rssi[3];
+} Rsl10EnvironmentalMessage_t;
+
+// Define the content of the environmental message from the RSL10.
+// MSD 00AB8967452301 00 01 64 F9FF 1300 D9FF 00FC 5 9 5 B -49
+typedef struct RSL10MotionMessage {
+    char msgSendRxId[3]; // MSD
+    uint8_t BdAddress[7 * 2];
+    uint8_t version[1 * 2];
+    uint8_t sampleIndex[1 * 2];
+    uint8_t SensorSetting[1 * 2];
+    uint8_t accel_raw_x[2 * 2];
+    uint8_t accel_raw_y[2 * 2];
+    uint8_t accel_raw_z[2 * 2];
+    uint8_t orientation_x[1 * 2];
+    uint8_t orientation_y[1 * 2];
+    uint8_t orientation_z[1 * 2];
+    uint8_t orientation_w[1 * 2];
+    char blankSpace[1];
+    char rssi[3];
+} Rsl10MotionMessage_t;
+
+// Define the content of the battery data message from the RSL10.
+// BAT 00AB8967452301 0ABD -52
+typedef struct RSL10BatteryMessage {
+    char msgSendRxId[3]; // MSD
+    uint8_t BdAddress[7 * 2];
+    uint8_t battery[2 * 2];
+    char blankSpace[1];
+    char rssi[3];
+} Rsl10BatteryMessage_t;
 
 #define MAX_RSL10_DEVICES 10
 #define RSL10_ADDRESS_LEN 18
@@ -68,7 +102,22 @@ typedef struct RSL10Device {
     float lastHumidity;
     float lastPressure;
     float lastAmbiantLight;
-    int lastRssi;
+    uint8_t lastSampleIndex;
+
+    //uint8_t lastSensorSettingFlags;
+    uint8_t lastsampleRate;
+    uint8_t lastAccelRange;
+    uint8_t lastDataType;
+
+    float lastAccel_raw_x;
+    float lastAccel_raw_y;
+    float lastAccel_raw_z;
+    float lastOrientation_x;
+    float lastOrientation_y;
+    float lastOrientation_z;
+    float lastOrientation_w;
+    int16_t lastRssi;
+    float lastBattery;
 } RSL10Device_t;
 
 extern void SendTelemetry(const char *);
@@ -79,14 +128,25 @@ extern char authorizedDeviceList[MAX_RSL10_DEVICES][RSL10_ADDRESS_LEN];
 // RSL10 Specific routines
 int stringToInt(char *, size_t);
 void textFromHexString(char *, char *, int);
-void getBdAddress(char *, Rsl10Message_t *);
-void getRxRssi(char *rxRssi, Rsl10Message_t *);
-void getTemperature(float *temperature, Rsl10Message_t *);
-void getHumidity(float *humidity, Rsl10Message_t *);
-void getPressure(float *pressure, Rsl10Message_t *);
-void getAmbiantLight(uint16_t *ambiantLight, Rsl10Message_t *);
-int getRsl10DeviceIndex(char *);
-int addRsl10DeviceToList(char *, Rsl10Message_t *);
+void getBdMessageID(char *, RSL10MessageHeader_t *);
+void getBdAddress(char *, RSL10MessageHeader_t *);
+
+void rsl10ProcessMovementMessage(char*, int8_t);
+void rsl10ProcessEnvironmentalMessage(char*, int8_t);
+void rsl10ProcessBatteryMessage(char*, int8_t);
+
+void getRxRssi(int16_t *, char * );
+void getTemperature(float *, Rsl10EnvironmentalMessage_t *);
+void getHumidity(float *, Rsl10EnvironmentalMessage_t *);
+void getPressure(float *, Rsl10EnvironmentalMessage_t *);
+void getAmbiantLight(uint16_t *, Rsl10EnvironmentalMessage_t *);
+void getBattery(float *, Rsl10BatteryMessage_t *);
+void getSensorSettings(RSL10Device_t*, Rsl10MotionMessage_t*);
+void getAccelReadings(RSL10Device_t*, Rsl10MotionMessage_t*);
+void getOrientation(RSL10Device_t*, Rsl10MotionMessage_t*);
+
+int8_t getRsl10DeviceIndex(char *);
+int8_t  addRsl10DeviceToList(char *);
 void processData(int, int);
 bool isDeviceAuthorized(char *);
 void rsl10SendTelemetry(void);

@@ -161,7 +161,7 @@ void CloseFdAndPrintError(int fd, const char *fdName);
 static void ClosePeripheralsAndHandlers(void);
 
 // BT510 Specific routines
-extern void parseAndSendToAzure(char *);
+extern void parseRsl10Message(char *);
 
 // File descriptors - initialized to invalid value
 
@@ -1093,42 +1093,8 @@ static void UartEventHandler(EventLoop *el, int fd, EventLoop_IoEvents events, v
 #ifdef ENABLE_MSG_DEBUG            
             Log_Debug("\nRX: %s\n", responseMsg);
 #endif 
-
-// Test messages:
-//
-// temp             char *testString = "BS1:3429FF7700520003010100000280A59502E9E0E7 01 8901BC0AA55Fxxxx0000000000030007000001000D00090952656665722D303100 -55";
-// temp             char *testString = "BS1:3429FF7700520003010100000280A59502E9E0E7018901BC0AA55F9C090000000000030007000001000D00090952656665722D303100 -55";
-// Magnet Near      char *testString = "BS1:3429FF7700520003010100000000A59502E9E0E7028902BC0AA55FFFFF0000000000030007000001000D00090952656665722D303100 -55";
-// Magnet Far       char *testString = "BS1:3429FF7700520003010100008000A59502E9E0E7028902BC0AA55F00000000000000030007000001000D00090952656665722D303100 -55";
-// Movement         char *testString = "BS1:3429FF7700520003010100000280A59502E9E0E7 03 8903BC0AA55F9C090000000000030007000001000D00090952656665722D303100 -55";
-//High temp alarm1  char *testString = "BS1:3429FF7700520003010100000280A59502E9E0E7048901BC0AA55F9C090000000000030007000001000D00090952656665722D303100 -55";
-//High temp alarm2  char *testString = "BS1:3429FF7700520003010100000280A59502E9E0E7058903BC0AA55F9C090000000000030007000001000D00090952656665722D303100 -55";
-//High temp clear   char *testString = "BS1:3429FF7700520003010100000280A59502E9E0E7068901BC0AA55F9C090000000000030007000001000D00090952656665722D303100 -55";
-//Low temp alarm1   char *testString = "BS1:3429FF7700520003010100000280A59502E9E0E7078901BC0AA55F9C090000000000030007000001000D00090952656665722D303100 -55";
-//Low temp alarm1   char *testString = "BS1:3429FF7700520003010100000280A59502E9E0E7088901BC0AA55F9C090000000000030007000001000D00090952656665722D303100 -55";
-//Low temp clear    char *testString = "BS1:3429FF7700520003010100000280A59502E9E0E7098901BC0AA55F9C090000000000030007000001000D00090952656665722D303100 -55";
-//delta temp alarm  char *testString = "BS1:3429FF7700520003010100000280A59502E9E0E70A8901BC0AA55F9C090000000000030007000001000D00090952656665722D303100 -55";
-// battery good     char *testString = "BS1:3429FF7700520003010100000280A59502E9E0E70C8901BC0AA55F9C090000000000030007000001000D00090952656665722D303100 -55";
-// advertise button char *testString = "BS1:3429FF7700520003010100000280A59502E9E0E70D8901BC0AA55F9C090000000000030007000001000D00090952656665722D303100 -55";
-// battery bad      char *testString = "BS1:3429FF7700520003010100000280A59502E9E0E7108901BC0AA55F9C090000000000030007000001000D00090952656665722D303100 -55";
-
-#ifdef ENABLE_MESSAGE_TESTING
-
-// Copy and paste the message you want to test from the table above
-
-char *testString =
-                "BS1:"
-                "3429FF7700520003010100008000A59502E9E0E7028902BC0AA55F0000000000000003000700000100"
-                "0D00090952656665722D303100 -55";
-
             // Call the routine that knows how to parse the response and send data to Azure
-            parseAndSendToAzure(testString);
-
-#else
-            // Call the routine that knows how to parse the response and send data to Azure
-            parseAndSendToAzure(responseMsg);
-
-#endif // ENABLE_MESSAGE_TESTING
+            parseRsl10Message(responseMsg);
 
             // Update the currentData index and adjust for the '\n' character
             currentData = tempCurrentData + 1;
@@ -1155,34 +1121,3 @@ char *testString =
     Log_Debug("Exit: bytesInBuffer: %d\n", bytesInBuffer);
 #endif
 }
-
-/*
-/// <summary>
-///     Helper function to send a fixed message via the given UART.
-/// </summary>
-/// <param name="uartFd">The open file descriptor of the UART to write to</param>
-/// <param name="dataToSend">The data to send over the UART</param>
-static void SendUartMessage(int uartFd, const char *dataToSend)
-{
-    size_t totalBytesSent = 0;
-    size_t totalBytesToSend = strlen(dataToSend);
-    int sendIterations = 0;
-    while (totalBytesSent < totalBytesToSend) {
-        sendIterations++;
-
-        // Send as much of the remaining data as possible
-        size_t bytesLeftToSend = totalBytesToSend - totalBytesSent;
-        const char *remainingMessageToSend = dataToSend + totalBytesSent;
-        ssize_t bytesSent = write(uartFd, remainingMessageToSend, bytesLeftToSend);
-        if (bytesSent == -1) {
-            Log_Debug("ERROR: Could not write to UART: %s (%d).\n", strerror(errno), errno);
-            exitCode = ExitCode_SendMessage_Write;
-            return;
-        }
-
-        totalBytesSent += (size_t)bytesSent;
-    }
-
-    Log_Debug("Sent %zu bytes over UART in %d calls.\n", totalBytesSent, sendIterations);
-}
-*/

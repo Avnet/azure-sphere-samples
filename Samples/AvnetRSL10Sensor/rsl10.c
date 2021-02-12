@@ -9,102 +9,97 @@
 // Global variables
 RSL10Device_t Rsl10DeviceList[MAX_RSL10_DEVICES];
 char authorizedDeviceList[MAX_RSL10_DEVICES][RSL10_ADDRESS_LEN];
-int currentRsl10DeviceIndex = -1;
-uint8_t numRsl10DevicesInList = 0;
+int8_t currentRsl10DeviceIndex = -1;
+int8_t numRsl10DevicesInList = 0;
 char bdAddress[] = "  -  -  -  -  -  \0";
-char rxRssi[] = "-xx\0";
-float temperature;
-float humidity;
-float pressure;
-uint16_t ambiantLight;
 
 /// <summary>
-///     Function to parse UART Rx messages and send to IoT Hub.
+///     Function to parse UART Rx messages and update global structures
 /// </summary>
 /// <param name="msgToParse">The message received from the UART</param>
-void parseAndSendToAzure(char *msgToParse)
+void parseRsl10Message(char *msgToParse)
 {
-    // This is a big ugly function, basically what it does is . . . 
-    // 1. check to see if this is a advertisement message
-    // 2. Pull the Address, recordNumber and flags from the message
-    // 3. Make sure that the mac for this device was authorized in the device twin
-    // 4. Check to see if we've already created an object for this device using the addres
-    // 4.1 If not, then create one (just populate a static array)
 
-    // Message pointer
-    Rsl10Message_t *msgPtr;
+    #define MIN_RSL10_MSG_LENGTH 25
 
-    int tempRsl10Index = -1;
+    // Do a sanity check to make sure that the message is large enough to be a valid message.
+    // The battery message is the smallest message we expect, if this message is smaller than that,
+    // then exit without doing any processing.
+    if(strlen(msgToParse) < MIN_RSL10_MSG_LENGTH){
+        Log_Debug("RSL10 message is not valid, message length = %d, minimum valid length is %d.\n", strlen(msgToParse), MIN_RSL10_MSG_LENGTH);
+        return;
+    }
 
-    Log_Debug("msgToParse lentgh: %d\n", strlen(msgToParse));
+    // Variable to hold the message identifier "ESD", "MSD" or "BAT"
+    char messageID[3];
 
-    // Check to see if this is a RSL10 Advertisement message
-    if (strlen(msgToParse) > 32) {
+    // Generic message pointer for message ID and BdAddress
+    RSL10MessageHeader_t *msgPtr;
+    msgPtr = (RSL10MessageHeader_t*)msgToParse;
 
-        // Cast the message to the correct type so we can index into the string
-        msgPtr = (Rsl10Message_t *)msgToParse;
+    // Index into device list for this message
+    int8_t  tempRsl10Index = -1;
 
-        // Pull the RSL10 address from the message
-        getBdAddress(bdAddress, msgPtr);
+    // Pull the RSL10 ID from the message
+    getBdMessageID(messageID, msgPtr);
 
+    // Pull the RSL10 address from the message
+    getBdAddress(bdAddress, msgPtr);
 
-        // Check to see if this devcice's MAC address has been whitelisted
-        if( !isDeviceAuthorized(bdAddress)){
+    // Check to see if this devcice's MAC address has been whitelisted
+    if( !isDeviceAuthorized(bdAddress)){
 
-            Log_Debug("Device %s , discarding message data\n", bdAddress);
-            Log_Debug("To authorize the device add it's MAC address as a authorizedMac<n> in the IoTHub device twin\n");
+        Log_Debug("Device %s is not authorized, discarding message data\n", bdAddress);
+        Log_Debug("To authorize the device add it's MAC address as a authorizedMac<n> in the IoTHub device twin\n");
+        return;
+    }
+
+    // Determine if we know about this RSL10 using the address
+    currentRsl10DeviceIndex = getRsl10DeviceIndex(bdAddress);
+
+    // Check to see if the device was found, not then add it!
+    if (currentRsl10DeviceIndex == -1) {
+
+        // We did not find this device in our list, add it!
+        tempRsl10Index = addRsl10DeviceToList(bdAddress);
+
+        if (tempRsl10Index != -1) {
+
+            currentRsl10DeviceIndex = tempRsl10Index;
+            Log_Debug("Add this device as index %d\n", currentRsl10DeviceIndex);
+        } else {
+
+            // Device could not be added!
+            Log_Debug("ERROR: Could not add new device\n");
             return;
         }
-
-        // Determine if we know about this RSL10 using the address
-        currentRsl10DeviceIndex = getRsl10DeviceIndex(bdAddress);
-
-        // Check to see if the device was found, not then add it!
-        if (currentRsl10DeviceIndex == -1) {
-
-            // We did not find this device in our list, add it!
-            tempRsl10Index = addRsl10DeviceToList(bdAddress, msgPtr);
-
-            if (tempRsl10Index != -1) {
-
-                currentRsl10DeviceIndex = tempRsl10Index;
-                Log_Debug("Add this device as index %d\n", currentRsl10DeviceIndex);
-            } else {
-
-                // Device could not be added!
-                Log_Debug("ERROR: Could not add new device\n");
-            }
-        }
-
-        // Else the device was found and currentRsl10DeviceIndex now holds the index to this
-        // device's struct
-
-        // Pull the rssi number from the end of the message
-        getRxRssi(rxRssi, msgPtr);
-        Rsl10DeviceList[currentRsl10DeviceIndex].lastRssi = atoi(rxRssi);
-
-        getTemperature(&temperature, msgPtr);
-        Rsl10DeviceList[currentRsl10DeviceIndex].lastTemperature = temperature;
-
-        getHumidity(&humidity, msgPtr);
-        Rsl10DeviceList[currentRsl10DeviceIndex].lastHumidity = humidity;
-
-        getPressure(&pressure, msgPtr);
-        Rsl10DeviceList[currentRsl10DeviceIndex].lastPressure = pressure;
-
-        getAmbiantLight(&ambiantLight, msgPtr);
-        Rsl10DeviceList[currentRsl10DeviceIndex].lastAmbiantLight = ambiantLight;
-
-#ifdef ENABLE_MSG_DEBUG
-            Log_Debug("RSL10 Device: %s is captured in index %d\n", bdAddress, currentRsl10DeviceIndex);
-            Log_Debug("RX rssi    : %s\n", rxRssi);
-            Log_Debug("Temperature: %.2f\n", temperature);
-            Log_Debug("Humidity: %.2f\n", humidity);
-            Log_Debug("Pressure: %.2f\n", pressure);
-#endif 
     }
+
+    // Next determine which message we received and call the appropriate rouitine to pull data 
+    // from the message and copy that data to this RSL10's data structure
+    
+    // Is this a Movement message?
+    if (strcmp(messageID, "MSD") == 0) {
+        rsl10ProcessMovementMessage(msgToParse, currentRsl10DeviceIndex);
+    } 
+
+    // Is this a Environmental message?
+    else if (strcmp(messageID, "ESD") == 0) {
+        rsl10ProcessEnvironmentalMessage(msgToParse, currentRsl10DeviceIndex);
+    }
+
+    // Is this a Battery message?
+    else if (strcmp(messageID, "BAT") == 0) {
+        rsl10ProcessBatteryMessage(msgToParse, currentRsl10DeviceIndex);
+    }
+
+    else{
+        Log_Debug("Unknown message ID\n");
+    }
+    return;
 }
 
+// Worker routine to convert a string to an integer
 int stringToInt(char *stringData, size_t stringLength)
 {
 
@@ -114,6 +109,7 @@ int stringToInt(char *stringData, size_t stringLength)
     return (int)(strtol(tempString, NULL, 16));
 }
 
+// Worker routine to convert hex data to it's string representation
 void textFromHexString(char *hex, char *result, int strLength)
 {
     char temp[3];
@@ -127,8 +123,85 @@ void textFromHexString(char *hex, char *result, int strLength)
     *result = '\0';
 }
 
+// Process a RSL10 Movement message
+void rsl10ProcessMovementMessage(char* rxMessage, int8_t currentRsl10DeviceIndex)
+{
+
+    // Cast the pointer to reference this messages data structure
+    Rsl10MotionMessage_t* msgPtr = (Rsl10MotionMessage_t*) rxMessage;
+
+    // Call the routines to pull the data from the message.  This devices global structure is updated
+    // by each routine.
+    getRxRssi(&Rsl10DeviceList[currentRsl10DeviceIndex].lastRssi, &msgPtr->rssi);
+    getSensorSettings(&Rsl10DeviceList[currentRsl10DeviceIndex], msgPtr);
+    getAccelReadings(&Rsl10DeviceList[currentRsl10DeviceIndex], msgPtr);
+    getOrientation(&Rsl10DeviceList[currentRsl10DeviceIndex], msgPtr);
+
+#ifdef ENABLE_MSG_DEBUG
+    Log_Debug("Rssi: %d\n", Rsl10DeviceList[currentRsl10DeviceIndex].lastRssi);
+    Log_Debug("accel: %.4f, %.4f, %.4f\n", Rsl10DeviceList[currentRsl10DeviceIndex].lastAccel_raw_x, 
+                                        Rsl10DeviceList[currentRsl10DeviceIndex].lastAccel_raw_y, 
+                                        Rsl10DeviceList[currentRsl10DeviceIndex].lastAccel_raw_z);
+    Log_Debug("Orientation: %.4f, %.4f, %.4f, %.4f\n", Rsl10DeviceList[currentRsl10DeviceIndex].lastOrientation_x, 
+                                                       Rsl10DeviceList[currentRsl10DeviceIndex].lastOrientation_y,      
+                                                       Rsl10DeviceList[currentRsl10DeviceIndex].lastOrientation_z,      
+                                                       Rsl10DeviceList[currentRsl10DeviceIndex].lastOrientation_w);      
+#endif 
+}
+
+// Process a RSL10 Environmental message
+void rsl10ProcessEnvironmentalMessage(char* rxMessage, int8_t currentRsl10DeviceIndex)
+{
+
+    // Cast the pointer to reference this messages data structure
+    Rsl10EnvironmentalMessage_t* msgPtr = (Rsl10EnvironmentalMessage_t*) rxMessage;
+
+    // Call the routines to pull the data from the message.  This devices global structure is updated
+    // by each routine.
+    getRxRssi(&Rsl10DeviceList[currentRsl10DeviceIndex].lastRssi, &msgPtr->rssi);
+    getTemperature(&Rsl10DeviceList[currentRsl10DeviceIndex].lastTemperature, msgPtr);
+    getHumidity(&Rsl10DeviceList[currentRsl10DeviceIndex].lastHumidity, msgPtr);
+    getPressure(&Rsl10DeviceList[currentRsl10DeviceIndex].lastPressure, msgPtr);
+    getAmbiantLight(&Rsl10DeviceList[currentRsl10DeviceIndex].lastAmbiantLight, msgPtr);
+
+#ifdef ENABLE_MSG_DEBUG
+            Log_Debug("RX rssi    : %d\n", Rsl10DeviceList[currentRsl10DeviceIndex].lastRssi);
+            Log_Debug("Temperature: %.2f\n", Rsl10DeviceList[currentRsl10DeviceIndex].lastTemperature);
+            Log_Debug("Humidity   : %.2f\n", Rsl10DeviceList[currentRsl10DeviceIndex].lastHumidity);
+            Log_Debug("Pressure   : %.2f\n", Rsl10DeviceList[currentRsl10DeviceIndex].lastPressure);
+#endif 
+
+}
+
+// Process a RSL10 Battery message
+void rsl10ProcessBatteryMessage(char* rxMessage, int8_t currentRsl10DeviceIndex)
+{
+
+    // Cast the pointer to reference this messages data structure
+    Rsl10BatteryMessage_t* msgPtr = (Rsl10BatteryMessage_t*) rxMessage;
+
+    // Call the routines to pull the data from the message.  This devices global structure is updated
+    // by each routine.
+    getRxRssi(&Rsl10DeviceList[currentRsl10DeviceIndex].lastRssi, &msgPtr->rssi);
+    getBattery(&Rsl10DeviceList[currentRsl10DeviceIndex].lastBattery, msgPtr);
+
+#ifdef ENABLE_MSG_DEBUG
+    Log_Debug("RX rssi    : %d\n", Rsl10DeviceList[currentRsl10DeviceIndex].lastRssi);
+    Log_Debug("Battery    : %.2f V\n", Rsl10DeviceList[currentRsl10DeviceIndex].lastBattery);
+#endif 
+}
+
+
+void getBdMessageID(char *messageID, RSL10MessageHeader_t *rxMessage){
+
+    messageID[0] = rxMessage->msgSendRxId[0];
+    messageID[1] = rxMessage->msgSendRxId[1];
+    messageID[2] = rxMessage->msgSendRxId[2];
+    messageID[3] = '\0';
+}
+
 // Set the global RSL10 address variable
-void getBdAddress(char *bdAddress, Rsl10Message_t *rxMessage)
+void getBdAddress(char *bdAddress, RSL10MessageHeader_t *rxMessage)
 {
     bdAddress[0] = rxMessage->BdAddress[10];
     bdAddress[1] = rxMessage->BdAddress[11];
@@ -145,15 +218,16 @@ void getBdAddress(char *bdAddress, Rsl10Message_t *rxMessage)
 }
 
 // Set the global rssi variable from the end of the message
-void getRxRssi(char *rxRssi, Rsl10Message_t *rxMessage)
+void getRxRssi(int16_t* rssiVariable, char *rxMessage)
 {
-    // BW Fix me
-    rxRssi[0] = rxMessage->rssi[0];
-    rxRssi[1] = rxMessage->rssi[1];
-    rxRssi[2] = rxMessage->rssi[2];
+    char tempRssi[3];
+    tempRssi[0] = rxMessage[0];
+    tempRssi[1] = rxMessage[1];
+    tempRssi[2] = rxMessage[2];
+    *rssiVariable  = (int16_t)atoi(tempRssi);
 }
 
-void getTemperature(float *temperature, Rsl10Message_t *rxMessage){
+void getTemperature(float *temperature, Rsl10EnvironmentalMessage_t *rxMessage){
 
     uint16_t temp =  (uint16_t)((stringToInt(&rxMessage->temperature[2], 2) << 8) |
                                 (stringToInt(&rxMessage->temperature[0], 2) << 0));
@@ -161,7 +235,7 @@ void getTemperature(float *temperature, Rsl10Message_t *rxMessage){
     return;
 }
 
-void getHumidity(float *humidity, Rsl10Message_t *rxMessage){
+void getHumidity(float *humidity, Rsl10EnvironmentalMessage_t *rxMessage){
 
     uint16_t temp =  (uint16_t)((stringToInt(&rxMessage->humidity[2], 2) << 8) |
                                 (stringToInt(&rxMessage->humidity[0], 2) << 0));
@@ -169,7 +243,7 @@ void getHumidity(float *humidity, Rsl10Message_t *rxMessage){
 
     return;
 }
-void getPressure(float *pressure, Rsl10Message_t *rxMessage){
+void getPressure(float *pressure, Rsl10EnvironmentalMessage_t *rxMessage){
     
     uint32_t temp =  (uint32_t)((stringToInt(&rxMessage->pressure[4], 2) << 16) |
                                 (stringToInt(&rxMessage->pressure[2], 2) << 8) |
@@ -178,13 +252,13 @@ void getPressure(float *pressure, Rsl10Message_t *rxMessage){
     return;
 
 }
-void getAmbiantLight(uint16_t *ambiantLight, Rsl10Message_t *rxMessage){
+void getAmbiantLight(uint16_t *ambiantLight, Rsl10EnvironmentalMessage_t *rxMessage){
 
     return;
 }
 
 
-int getRsl10DeviceIndex(char *Rsl10DeviceID)
+int8_t getRsl10DeviceIndex(char *Rsl10DeviceID)
 {
 
     for (int8_t i = 0; i < numRsl10DevicesInList; i++) {
@@ -196,7 +270,61 @@ int getRsl10DeviceIndex(char *Rsl10DeviceID)
     // If we did not find the device return -1
     return -1;
 }
-int addRsl10DeviceToList(char *newRsl10Address, Rsl10Message_t *newRsl10Device)
+
+void getBattery(float *battery, Rsl10BatteryMessage_t *rxMessage){
+
+    // Read the voltage level and covert it to Volts
+    *battery =  (float)(((stringToInt(&rxMessage->battery[0], 2) << 8) |
+                        (stringToInt(&rxMessage->battery[2], 2) << 0)))/1000;
+}
+
+void getSensorSettings(RSL10Device_t* currentDevPtr, Rsl10MotionMessage_t* rxMessage){
+
+    uint8_t sensorSettings = 0;
+    sensorSettings = (uint8_t)stringToInt(&rxMessage->SensorSetting, 2);
+    currentDevPtr->lastsampleRate = sensorSettings >> 4 & 0x0F;
+    currentDevPtr->lastAccelRange = sensorSettings >> 2 & 0x03;
+    currentDevPtr->lastDataType = sensorSettings & 0x03;
+}
+
+void getAccelReadings(RSL10Device_t* currentDevPtr, Rsl10MotionMessage_t* rxMessage){
+
+    #define RAW_TO_MPS_SQUARED 32768*9.81f
+    #define MPS_SQUARED_TO_G 0.102f
+
+    int16_t rawAccel;
+
+    // Read and calculate the x component
+    rawAccel =  (int16_t)(stringToInt(&rxMessage->accel_raw_x[2], 2) << 8) | (int16_t)(stringToInt(&rxMessage->accel_raw_x[0], 2) << 0);
+    currentDevPtr->lastAccel_raw_x = (float)rawAccel/RAW_TO_MPS_SQUARED*(currentDevPtr->lastAccelRange*4)*MPS_SQUARED_TO_G;
+
+    // Read and calculate the y component
+    rawAccel =  (int16_t)(stringToInt(&rxMessage->accel_raw_y[2], 2) << 8) | (int16_t)(stringToInt(&rxMessage->accel_raw_y[0], 2) << 0);
+    currentDevPtr->lastAccel_raw_y = (float)rawAccel/RAW_TO_MPS_SQUARED*(currentDevPtr->lastAccelRange*4)*MPS_SQUARED_TO_G;
+
+    // Read and calculate the z component
+    rawAccel =  (int16_t)(stringToInt(&rxMessage->accel_raw_z[2], 2) << 8) | (int16_t)(stringToInt(&rxMessage->accel_raw_z[0], 2) << 0);
+    currentDevPtr->lastAccel_raw_z = (float)rawAccel/RAW_TO_MPS_SQUARED*(currentDevPtr->lastAccelRange*4)*MPS_SQUARED_TO_G;
+}
+
+void getOrientation(RSL10Device_t* currentDevPtr, Rsl10MotionMessage_t* rxMessage){
+
+    #define ORIENTATION_DIVISOR 128.0f
+
+    // Read and calculate the x component
+    currentDevPtr->lastOrientation_x = (float)((int8_t)(stringToInt(&rxMessage->orientation_x[0], 2) << 0))/ORIENTATION_DIVISOR;
+
+    // Read and calculate the y component
+    currentDevPtr->lastOrientation_y = (float)((int8_t)(stringToInt(&rxMessage->orientation_y[0], 2) << 0))/ORIENTATION_DIVISOR;
+
+    // Read and calculate the z component
+    currentDevPtr->lastOrientation_z = (float)((int8_t)(stringToInt(&rxMessage->orientation_z[0], 2) << 0))/ORIENTATION_DIVISOR;
+
+    // Read and calculate the z component
+    currentDevPtr->lastOrientation_w = (float)((int8_t)(stringToInt(&rxMessage->orientation_w[0], 2) << 0))/ORIENTATION_DIVISOR;
+}
+
+int8_t  addRsl10DeviceToList(char *newRsl10Address)
 {
 
     // check the whitelist first!
@@ -215,7 +343,7 @@ int addRsl10DeviceToList(char *newRsl10Address, Rsl10Message_t *newRsl10Device)
     numRsl10DevicesInList++;
 
     // Define the return value as the index into the array for the new element
-    int newDeviceIndex = numRsl10DevicesInList - 1;
+    int8_t newDeviceIndex = numRsl10DevicesInList - (int8_t)1;
 
     // Update the structure for this device
     strncpy(Rsl10DeviceList[newDeviceIndex].bdAddress, newRsl10Address, strlen(newRsl10Address));
@@ -224,29 +352,19 @@ int addRsl10DeviceToList(char *newRsl10Address, Rsl10Message_t *newRsl10Device)
     Rsl10DeviceList[newDeviceIndex].lastAmbiantLight = NAN;
     Rsl10DeviceList[newDeviceIndex].lastHumidity = NAN;
     Rsl10DeviceList[newDeviceIndex].lastPressure = NAN;
-    Rsl10DeviceList[newDeviceIndex].lastRssi = NAN;
+    Rsl10DeviceList[newDeviceIndex].lastRssi = INT16_MAX;
 
-    // Send up this devices specific details to the device twin
-    #define JSON_TWIN_BUFFER_SIZE 512
-    char deviceTwinBuffer[JSON_TWIN_BUFFER_SIZE];
-
-//    snprintf(deviceTwinBuffer, sizeof(deviceTwinBuffer), bt510DeviceTwinsonObject, deviceName, deviceName, deviceName, bdAddress, deviceName,
-//                 firmwareVersion, deviceName, bootloaderVersion);
-//    TwinReportState(deviceTwinBuffer);
-
+    // If we need to add any process when we receive the first message from the device, then add it here
     Log_Debug("Add new device to list at index %d!\n", newDeviceIndex);
 
     // Return the index into the array where we added the new device
     return newDeviceIndex;
 }
 
-
-
 // Check to see if the devices MAC has been authorized
 bool isDeviceAuthorized(char* deviceToCheck){
 
     for(int i = 0; i < MAX_RSL10_DEVICES; i++){
-        
         if(strncmp(&authorizedDeviceList[i][0], deviceToCheck, RSL10_ADDRESS_LEN) == 0){
             return true;
         }

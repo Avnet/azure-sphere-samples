@@ -277,137 +277,75 @@ endfunc 0
 //   nRssi       : rssi of the report
 //------------------------------------------------------------------------------
 sub ProcessAdvReport( fLongRange )
+
+  DIM nADTag 
+  DIM msgSize
+  DIM uuidString$
+  DIM uuidCmpStringESD$
+  DIM uuidCmpStringMSD$
+  DIM msgPrefix$
+  DIM msgPayload$
+  DIM eddystonePacketID$
+  DIM eddystoneString$
+
+  // Define the Tag to find the RSL10 data
+  nADTag = 0x21
+
+  // Define the UUIDs we use to find the RSL10 data advertisements
+  uuidCmpStringESD$="8B380D0C61118C9BE95C9298092331F0"
+  uuidCmpStringMSD$="203606DCE9DCB3B7745559262EE12305"
+
+  // Define the bytes that identify a Eddystone packet  
+  eddystonePacketID$="0303AAFE1116AAFE"
+
+// Enable to output all advertised packets this device recieves
+//  print StrHexize$(periphAddr$);StrHexize$(advData$);" ";nRssi;"\n"
+//  exitsub
+
   //Check for 1st manufacturer specific AD element tag
-  rc=BleGetADbyTag(advData$,AD_TAG_MANUF,adelem$)
+  rc=BleGetADbyTag(advData$,nADTag,adelem$)
   if rc!=0 then
-    exitsub
-  endif
-  //Found a 1st AD element with manuf tag, check which protocol
-  rc=CheckProtocol(adelem$)
-  select rc
-  case PROTID_0077_0001
-    //#cmpif 0x00001000 : print "\n## found PROTID_0077_0001"
-    //#cmpif 0x00001000 : print "\n## BT510 Adv: ";strhexize$(advData$)
-    //#cmpif 0x00001000 : print "\n##    adelem: ";strhexize$(adelem$)
-    //strip companyid and protocolid
-    tmpFrag1$=mid$(adelem$,COMPANYID_PROTID_LEN,65535)
-    //The 3rd AD element will be another manufacturer specific tag
-    rc=BleGetADbyIndex(2,advData$,tmpTag,adelem$)
-    if (rc!=0) || (tmpTag!=AD_TAG_MANUF) then
-      //not found 3rd AD element NOR is it a FF
-      exitsub
-    endif
-    //found 2nd manufactrer AD so check if it is has the right protocol
-    rc=StrPos(adelem$,protLs03$,0)
-    if rc!=0 then
-      //not the right protocol
-      exitsub
-    endif
-    //found PROTID_00E4_0003
-    //#cmpif 0x00001000 : print "\n## found PROTID_00E4_0003"
-    //#cmpif 0x00001000 : print "\n##    adelem: ";strhexize$(adelem$)
-    tmpAdvR$=tmpFrag1$ + mid$(adelem$,4,65535)
-    if fGatewayMode then
-      tmpAdvR$=hdrRepeatG$ + tmpAdvR$
-    else
-      tmpAdvR$=hdrRepeatR$ + tmpAdvR$
-    endif
 
-    //check if DeviceName AD element is present
-    rc=BleGetADbyIndex(3,advData$,nameTag,asName$)
-    //#cmpif 0x00001000 : print "\n## Name rc=";rc;" tag=";nameTag;" name=";asName$
-    if (rc!=0) || (IsAdTagName()==0) then
-      //not found 4th AD element and if found then it is not a device name tag
-      exitsub
-    endif
-    pktSrc=PKT_SOURCE_BT510
+    // Check to see if this is one of the Eddystone packets we need to process
+    eddystoneString$ = MID$(advData$, 0, 8)
+    eddystoneString$=StrHexize$(eddystoneString$)
+    if STRCMP(eddystoneString$,eddystonePacketID$)==0 then
 
+      // Pull the payload from the advertisement
+      msgPayload$ = MID$(advData$, 10, 2)
+      msgPrefix$="BAT"
+      print msgPrefix$;StrHexize$(periphAddr$);StrHexize$(msgPayload$);" ";nRssi;"\n"
+    else     
+	  // If this is not a packet we care about, just exit
+  	  exitsub
+    endif 
+  endif 
 
-  case PROTID_0077_0002
-    //#cmpif 0x00001000 : print "\n## found PROTID_0077_0002"
-    //#cmpif 0x00001000 : print "\n## BT510 Adv: ";strhexize$(advData$)
-    //strip companyid and protocolid
-    tmpAdvR$=mid$(adelem$,COMPANYID_PROTID_LEN,65535)
-    if fGatewayMode then
-      tmpAdvR$=hdrRepeatG$ + tmpAdvR$
-    else
-      tmpAdvR$=hdrRepeatR$ + tmpAdvR$
-    endif
+  // Pull the UUID from the advertised data.  We use this to determine which message
+  // the RSL10 is sending.
+  uuidString$ = MID$(advData$, 2, 16)
+  
+  // Convert the string to something we can use for a string compare
+  uuidString$ = StrHexize$(uuidString$)
 
-    //check if DeviceName AD element is present
-    rc=BleGetADbyIndex(2,advData$,nameTag,asName$)
-    //#cmpif 0x00001000 : print "\n## Name rc=";rc;" tag=";nameTag;" name=";asName$
-    if (rc!=0) || (IsAdTagName()==0) then
-      //not found 4th AD element and if found then it is not a device name tag
-      exitsub
-    endif
-    pktSrc=PKT_SOURCE_BT510
-
-  case PROTID_0077_000R
-    //#cmpif 0x00001000 : print "\n## found PROTID_0077_000R"
-    //#cmpif 0x00001000 : print "\n## BT510 Adv: ";strhexize$(advData$)
-    //strip companyid and protocolid
-    tmpAdvR$=mid$(adelem$,COMPANYID_PROTID_LEN,65535)
-    //now we have the repeat header & the BT510 content so get the current hop count
-    tmpRptCnt=StrGetChr(tmpAdvR$,HDRPRT_HOP_COUNT)
-    //abort if less than 1
-    if tmpRptCnt<1 then
-      if fGatewayMode==0 then
-        //not in gateway mode so just return
-        exitsub
-      endif
-    else
-      //decrement count and write back to report
-      tmpRptCnt = tmpRptCnt - 1
-      rc=StrSetChr(tmpAdvR$,tmpRptCnt,HDRPRT_HOP_COUNT)
-      #cmpif 0x00000003 : AssertRC(202610)
-    endif
-    pktSrc=PKT_SOURCE_REPEATER
-
-  case else
-    exitsub
-
-  endselect
-
-  //at this point tmpAdvR$ is the advert data we want to send in a new in PROTID_0077_000R
-  tmpAdvR$=protLc0r$+tmpAdvR$
-
-  //create an advreport - use the scan init because we want it to be totally empty
-  rc=BleScanRptInit(tmpAdvRpt$)
-  #cmpif 0x00000003 : AssertRC(202720)
-
-  //add the Manufacturere AD element
-  rc=BleExtAdvRptAppendAD(tmpAdvRpt$,AD_TAG_MANUF,tmpAdvR$)
-  #cmpif 0x00000003 : AssertRC(202760)
-
-  //add the device name AD element
-  rc=BleExtAdvRptAppendAD(tmpAdvRpt$,nameTag,asName$)
-  #cmpif 0x00000003 : AssertRC(202800)
-
-  if fGatewayMode then
-    //Gateway Mode send the advert out via the uart
-    //Determine the prefix to send
-    if pktSrc==PKT_SOURCE_BT510 then
-      if fLongRange then
-        pfxId=BT510_PACKET_LECODED
-      else
-        pfxId=BT510_PACKET_1MPHY
-      endif
-    else
-      if fLongRange then
-        pfxId=BT510_REPEATED_PACKET_LECODED
-      else
-        pfxId=BT510_REPEATED_PACKET_1MPHY
-      endif
-    endif
-    //send via uart
-    PushAdvertToUart(tmpAdvRpt$,pfxId,nRssi)
+  // Pull the payload from the advertisement
+  msgPayload$ = MID$(advData$, 18, StrLen(advData$)-18)
+  
+  // Determine if this is a Environmental Service Data (V5) packet
+  // or a Motion Service Data (V1) packet.  This is determined bytes
+  // examining the 128 bit UUID starting a byte #2 and extending to byte #16
+  // Offsets are zero based
+  if STRCMP(uuidString$,uuidCmpStringESD$)==0 then
+    msgPrefix$="ESD"
+  elseif STRCMP(uuidString$,uuidCmpStringMSD$)==0 then	
+    msgPrefix$="MSD"
   else
-    //add this new advert to the queue
-    #cmpif 0x00001000 : print "\n## BT510 Adv: ";strhexize$(tmpAdvRpt$);" ";nRssi
-    PushAdvertToQue(tmpAdvRpt$,fLongRange,pktSrc)
-  endif
-
+    // Not a message we know how to process, bail
+	exitsub
+  endif 
+  
+  print msgPrefix$;StrHexize$(periphAddr$);StrHexize$(msgPayload$);" ";nRssi;"\n"
+  
 endsub
 
 //------------------------------------------------------------------------------
