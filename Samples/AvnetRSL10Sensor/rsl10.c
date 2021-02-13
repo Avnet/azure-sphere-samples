@@ -373,12 +373,17 @@ int8_t  addRsl10DeviceToList(char *newRsl10Address)
 // Check to see if the devices MAC has been authorized
 bool isDeviceAuthorized(char* deviceToCheck){
 
+    // For now, authorize all devices.  This is a limitation of the current IoTConect model
+    return true;
+
+/*
     for(int i = 0; i < MAX_RSL10_DEVICES; i++){
         if(strncmp(&authorizedDeviceList[i][0], deviceToCheck, RSL10_ADDRESS_LEN) == 0){
             return true;
         }
     }
     return false;
+*/    
 }
 
 void rsl10SendTelemetry(void) {
@@ -396,7 +401,7 @@ void rsl10SendTelemetry(void) {
             // Define the Json string format for movement messages, the
             // actual telemetry data is inserted as the last string argument
             static const char Rsl10MotionTelemetryJson[] =
-                "{\"address\":\"%s\",\"rssi\":%d,\"acc_x\":%0.4f,\"acc_y\":%0.4f,\"acc_z\":%0.4f,\"orient_x\":%0.4f,\"orient_y\":%0.4f,\"orient_z\":%0.4f,\"orient_w\":%0.4f}";
+                "{\"RSL10Sensors\":{\"address\":\"%s\",\"rssi\":%d,\"acc_x\":%0.4f,\"acc_y\":%0.4f,\"acc_z\":%0.4f,\"orient_x\":%0.4f,\"orient_y\":%0.4f,\"orient_z\":%0.4f,\"orient_w\":%0.4f}}";
 
             snprintf(telemetryBuffer, sizeof(telemetryBuffer), Rsl10MotionTelemetryJson,
                                                                Rsl10DeviceList[currentDevice].bdAddress,
@@ -420,7 +425,7 @@ void rsl10SendTelemetry(void) {
 
             // actual telemetry data is inserted as the last string argument
             static const char Rsl10EnvironmentalTelemetryJson[] =
-                "{\"address\":\"%s\",\"rssi\":%d,\"temperature\":%0.2f,\"humidity\": %0.2f,\"pressure\": %0.2f, \"light\": %d}";
+                "{\"RSL10Sensors\":{\"address\":\"%s\",\"rssi\":%d,\"temperature\":%0.2f,\"humidity\": %0.2f,\"pressure\": %0.2f, \"light\": %d}}";
 
             snprintf(telemetryBuffer, sizeof(telemetryBuffer), Rsl10EnvironmentalTelemetryJson,
                                                                Rsl10DeviceList[currentDevice].bdAddress,
@@ -444,7 +449,7 @@ void rsl10SendTelemetry(void) {
 
             // Define the Json string format for battery messages, the
             // actual telemetry data is inserted as the last string argument
-            static const char Rsl10BatteryTelemetryJson[] = "{\"address\":\"%s\",\"rssi\":%d,\"battery\":%0.2f}";
+            static const char Rsl10BatteryTelemetryJson[] = "{\"RSL10Sensors\":{\"address\":\"%s\",\"rssi\":%d,\"battery\":%0.2f}}";
 
             snprintf(telemetryBuffer, sizeof(telemetryBuffer), Rsl10BatteryTelemetryJson,
                                                                Rsl10DeviceList[currentDevice].bdAddress,

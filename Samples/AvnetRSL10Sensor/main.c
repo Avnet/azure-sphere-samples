@@ -624,8 +624,10 @@ static void ConnectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result,
         cellinfo = NULL;
     }
 #else
+    // The current IoTTemplate does not support these device twins, so don't send them
+
     // Send static device twin properties when connection is established
-    TwinReportState("{\"manufacturer\":\"Avnet\",\"model\":\"Azure Sphere RSL10 Demo\"}");
+//    TwinReportState("{\"manufacturer\":\"Avnet\",\"model\":\"Azure Sphere RSL10 Demo\"}");
 #endif 
 
     // Since the connection state just changed, update the status LEDs

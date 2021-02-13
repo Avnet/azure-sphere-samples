@@ -29,7 +29,7 @@ This file implements routines requied to parse RSL10 advertisement messages rece
 //#define ENABLE_MESSAGE_TESTING
 
 // Enable this define to see more debug around the message parsing
-#define ENABLE_MSG_DEBUG
+//#define ENABLE_MSG_DEBUG
 
 extern volatile sig_atomic_t exitCode;
 
