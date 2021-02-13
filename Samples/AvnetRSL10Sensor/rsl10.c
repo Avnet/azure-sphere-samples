@@ -7,11 +7,11 @@
 #endif
 
 // Global variables
-RSL10Device_t Rsl10DeviceList[MAX_RSL10_DEVICES];
 char authorizedDeviceList[MAX_RSL10_DEVICES][RSL10_ADDRESS_LEN];
+RSL10Device_t Rsl10DeviceList[MAX_RSL10_DEVICES];
 int8_t currentRsl10DeviceIndex = -1;
 int8_t numRsl10DevicesInList = 0;
-char bdAddress[] = "  -  -  -  -  -  \0";
+char bdAddress[] = "  :  :  :  :  :  \0";
 
 /// <summary>
 ///     Function to parse UART Rx messages and update global structures
@@ -132,10 +132,13 @@ void rsl10ProcessMovementMessage(char* rxMessage, int8_t currentRsl10DeviceIndex
 
     // Call the routines to pull the data from the message.  This devices global structure is updated
     // by each routine.
-    getRxRssi(&Rsl10DeviceList[currentRsl10DeviceIndex].lastRssi, &msgPtr->rssi);
+    getRxRssi(&Rsl10DeviceList[currentRsl10DeviceIndex].lastRssi, &msgPtr->rssi[0]); 
     getSensorSettings(&Rsl10DeviceList[currentRsl10DeviceIndex], msgPtr);
     getAccelReadings(&Rsl10DeviceList[currentRsl10DeviceIndex], msgPtr);
     getOrientation(&Rsl10DeviceList[currentRsl10DeviceIndex], msgPtr);
+
+    // Set the flag so we know that we have fresh data to send to IoTConnect
+    Rsl10DeviceList[currentRsl10DeviceIndex].movementDataRefreshed = true;
 
 #ifdef ENABLE_MSG_DEBUG
     Log_Debug("Rssi: %d\n", Rsl10DeviceList[currentRsl10DeviceIndex].lastRssi);
@@ -158,11 +161,14 @@ void rsl10ProcessEnvironmentalMessage(char* rxMessage, int8_t currentRsl10Device
 
     // Call the routines to pull the data from the message.  This devices global structure is updated
     // by each routine.
-    getRxRssi(&Rsl10DeviceList[currentRsl10DeviceIndex].lastRssi, &msgPtr->rssi);
+    getRxRssi(&Rsl10DeviceList[currentRsl10DeviceIndex].lastRssi, msgPtr->rssi);
     getTemperature(&Rsl10DeviceList[currentRsl10DeviceIndex].lastTemperature, msgPtr);
     getHumidity(&Rsl10DeviceList[currentRsl10DeviceIndex].lastHumidity, msgPtr);
     getPressure(&Rsl10DeviceList[currentRsl10DeviceIndex].lastPressure, msgPtr);
     getAmbiantLight(&Rsl10DeviceList[currentRsl10DeviceIndex].lastAmbiantLight, msgPtr);
+
+    // Set the flag so we know that we have fresh data to send to IoTConnect
+    Rsl10DeviceList[currentRsl10DeviceIndex].environmentalDataRefreshed = true;
 
 #ifdef ENABLE_MSG_DEBUG
             Log_Debug("RX rssi    : %d\n", Rsl10DeviceList[currentRsl10DeviceIndex].lastRssi);
@@ -182,8 +188,12 @@ void rsl10ProcessBatteryMessage(char* rxMessage, int8_t currentRsl10DeviceIndex)
 
     // Call the routines to pull the data from the message.  This devices global structure is updated
     // by each routine.
-    getRxRssi(&Rsl10DeviceList[currentRsl10DeviceIndex].lastRssi, &msgPtr->rssi);
+    getRxRssi(&Rsl10DeviceList[currentRsl10DeviceIndex].lastRssi, &msgPtr->rssi[0]);
     getBattery(&Rsl10DeviceList[currentRsl10DeviceIndex].lastBattery, msgPtr);
+
+    // Set the flag so we know that we have fresh data to send to IoTConnect
+    Rsl10DeviceList[currentRsl10DeviceIndex].batteryDataRefreshed = true;
+
 
 #ifdef ENABLE_MSG_DEBUG
     Log_Debug("RX rssi    : %d\n", Rsl10DeviceList[currentRsl10DeviceIndex].lastRssi);
@@ -281,7 +291,7 @@ void getBattery(float *battery, Rsl10BatteryMessage_t *rxMessage){
 void getSensorSettings(RSL10Device_t* currentDevPtr, Rsl10MotionMessage_t* rxMessage){
 
     uint8_t sensorSettings = 0;
-    sensorSettings = (uint8_t)stringToInt(&rxMessage->SensorSetting, 2);
+    sensorSettings = (uint8_t)stringToInt((char*)&rxMessage->SensorSetting, 2);
     currentDevPtr->lastsampleRate = sensorSettings >> 4 & 0x0F;
     currentDevPtr->lastAccelRange = sensorSettings >> 2 & 0x03;
     currentDevPtr->lastDataType = sensorSettings & 0x03;
@@ -347,12 +357,11 @@ int8_t  addRsl10DeviceToList(char *newRsl10Address)
 
     // Update the structure for this device
     strncpy(Rsl10DeviceList[newDeviceIndex].bdAddress, newRsl10Address, strlen(newRsl10Address));
-//    strncpy(Rsl10DeviceList[newDeviceIndex].bt510Name, deviceName, strlen(deviceName));
-    Rsl10DeviceList[newDeviceIndex].lastTemperature = NAN;
-    Rsl10DeviceList[newDeviceIndex].lastAmbiantLight = NAN;
-    Rsl10DeviceList[newDeviceIndex].lastHumidity = NAN;
-    Rsl10DeviceList[newDeviceIndex].lastPressure = NAN;
-    Rsl10DeviceList[newDeviceIndex].lastRssi = INT16_MAX;
+
+    // Clear the flags that we use to know if we have fresh data to send up as telemetry
+    Rsl10DeviceList[newDeviceIndex].movementDataRefreshed = false;
+    Rsl10DeviceList[newDeviceIndex].environmentalDataRefreshed = false;
+    Rsl10DeviceList[newDeviceIndex].batteryDataRefreshed = false;
 
     // If we need to add any process when we receive the first message from the device, then add it here
     Log_Debug("Add new device to list at index %d!\n", newDeviceIndex);
@@ -372,121 +381,83 @@ bool isDeviceAuthorized(char* deviceToCheck){
     return false;
 }
 
-void rsl10SendTelemetry(void){
-
-    /*
-
-    // Define a flag to see if we found new telemetry data to send
-    bool updatedValuesFound = false;
-
-    // Define a flag to use for each device to determine if we need to append the rssi telemetry
-    bool deviceWasUpdated = false;
-
-    // Dynamically build the telemetry JSON document to handle from 1 to 10 BT510 devices.  
-    // For example the JSON for 1 BT510 . . . 
-    // {"tempDev1":24.3, "batDev1": 3.23, "rssiDev1": -71}
-    //
-    // The JSON for two BT510s . . .
-    // {23.3,"tempDev1":24.3, "batDev1": 3.23, "tempDev2":24.3, "batDev2": 3.23, "rssiDev1": -70, , "rssiDev2": -65}
-    // Where Dev1 and Dev2 are dynamic names pulled from each BT510s advertised name
+void rsl10SendTelemetry(void) {
     
-    // If we don't have any devices in the list, then bail.  Nothing to see here, move along . . . 
-    if(numBT510DevicesInList == 0){
-        return;
-    }
+    // Assume we'll be sending a message to Azure and allocate a buffer
+    #define JSON_BUFFER_SIZE 256
+    char telemetryBuffer[JSON_BUFFER_SIZE];
 
-    // Allocate enough memory to hold the dynamic JSON document, we know how large the object is, but we need to add additional
-    // memory for the device name and the data that we'll be adding to the telemetry message
-    char *telemetryBuffer = calloc((size_t)(numBT510DevicesInList * (               // Multiply the size for one device by the number of devices we have
-                                   (size_t)strlen(bt510TemperatureJsonObject) +     // Size of the temperature json template
-                                   (size_t)strlen(bt510BatteryJsonObject) +         // Size of the battery json template
-                                   (size_t)strlen(bt510RssiJsonObject) +            // Size of the rssi json template
-                                   (size_t)32 +                                     // Allow for the temperature and battery data (the numbers)
-                                   (size_t)MAX_NAME_LENGTH)),                       // Allow for the device name i.e., "Basement + Coach"
-                                   sizeof(char));
+    // Iterate over all connected RSL10 devices to send telemetry
+    for(int currentDevice = 0; currentDevice < numRsl10DevicesInList; currentDevice++){
 
-    // Verify we got the memory requested
-    if(telemetryBuffer == NULL){
-        exitCode = ExitCode_Init_TelemetryCallocFailed;
-        return;
-    }
+        // Check to see if the current device has fresh motion data, if so send the telemetry
+        if(Rsl10DeviceList[currentDevice].movementDataRefreshed){
 
-    // Declare an array that we use to construct each of the different telemetry parts, we populate this string then add it to the dynamic string
-    char newTelemetryString[16 + MAX_NAME_LENGTH];
+            // Define the Json string format for movement messages, the
+            // actual telemetry data is inserted as the last string argument
+            static const char Rsl10MotionTelemetryJson[] =
+                "{\"address\":\"%s\",\"rssi\":%d,\"acc_x\":%0.4f,\"acc_y\":%0.4f,\"acc_z\":%0.4f,\"orient_x\":%0.4f,\"orient_y\":%0.4f,\"orient_z\":%0.4f,\"orient_w\":%0.4f}";
 
-    // Start to build the dynamic telemetry message.  This first string contains the opening '{'
-    newTelemetryString[0] = '{';
-    // Add it to the telemetry message
-    strcat(telemetryBuffer,newTelemetryString);
+            snprintf(telemetryBuffer, sizeof(telemetryBuffer), Rsl10MotionTelemetryJson,
+                                                               Rsl10DeviceList[currentDevice].bdAddress,
+                                                               Rsl10DeviceList[currentDevice].lastRssi,
+                                                               Rsl10DeviceList[currentDevice].lastAccel_raw_x,
+                                                               Rsl10DeviceList[currentDevice].lastAccel_raw_y,
+                                                               Rsl10DeviceList[currentDevice].lastAccel_raw_z,
+                                                               Rsl10DeviceList[currentDevice].lastOrientation_x,
+                                                               Rsl10DeviceList[currentDevice].lastOrientation_y,
+                                                               Rsl10DeviceList[currentDevice].lastOrientation_z,
+                                                               Rsl10DeviceList[currentDevice].lastOrientation_w);
+            // Send the telemetry message
+            SendTelemetry(telemetryBuffer, true);
 
-    for(int i = 0; i < numBT510DevicesInList; i++){
-        
-        // Add temperature data for the current device, if it's been updated
-        if(!isnan(BT510DeviceList[i].lastTemperature)){
-
-            snprintf(newTelemetryString, sizeof(newTelemetryString), bt510TemperatureJsonObject, 
-                                                                     BT510DeviceList[i].bt510Name, 
-                                                                     BT510DeviceList[i].lastTemperature);
-            // Add it to the telemetry message
-            strcat(telemetryBuffer,newTelemetryString);
-
-            // Mark the temperature variable with the NAN value so we can determine if it gets updated
-            BT510DeviceList[i].lastTemperature = NAN;
-
-            // Set the flag that tells the logic to send the message to Azure
-            updatedValuesFound = true;
-            deviceWasUpdated = true;
+            // Clear the flag so we don't send this data again
+            Rsl10DeviceList[currentDevice].movementDataRefreshed = false;
 
         }
+        // Check to see if the current device has fresh environmental data, if so send the telemetry
+        if (Rsl10DeviceList[currentDevice].environmentalDataRefreshed){
 
-        // Add battery data for the current device, if it's been updated
-        if(!isnan(BT510DeviceList[i].lastBattery)){
+            // actual telemetry data is inserted as the last string argument
+            static const char Rsl10EnvironmentalTelemetryJson[] =
+                "{\"address\":\"%s\",\"rssi\":%d,\"temperature\":%0.2f,\"humidity\": %0.2f,\"pressure\": %0.2f, \"light\": %d}";
 
-            snprintf(newTelemetryString, sizeof(newTelemetryString), bt510BatteryJsonObject, 
-                                                                     BT510DeviceList[i].bt510Name, 
-                                                                     BT510DeviceList[i].lastBattery);
-            // Add it to the telemetry message
-            strcat(telemetryBuffer,newTelemetryString);
+            snprintf(telemetryBuffer, sizeof(telemetryBuffer), Rsl10EnvironmentalTelemetryJson,
+                                                               Rsl10DeviceList[currentDevice].bdAddress,
+                                                               Rsl10DeviceList[currentDevice].lastRssi,
+                                                               Rsl10DeviceList[currentDevice].lastTemperature,
+                                                               Rsl10DeviceList[currentDevice].lastHumidity,
+                                                               Rsl10DeviceList[currentDevice].lastPressure,
+                                                               Rsl10DeviceList[currentDevice].lastAmbiantLight);
+            // Send the telemetry message
+            SendTelemetry(telemetryBuffer, true);
 
-            // Mark the battery variable with the NAN value so we can determine if it gets updated
-            BT510DeviceList[i].lastBattery = NAN;
+            // Clear the flag so we don't send this data again
+            Rsl10DeviceList[currentDevice].movementDataRefreshed = false;
 
-            // Set the flag that tells the logic to send the message to Azure
-            updatedValuesFound = true;
-            deviceWasUpdated = true;
+
+            // Clear the flag so we don't send this data again
+            Rsl10DeviceList[currentDevice].environmentalDataRefreshed = false;
+        }
+        // Check to see if the current device has fresh battery data, if so send the telemetry
+        if (Rsl10DeviceList[currentDevice].batteryDataRefreshed){
+
+            // Define the Json string format for battery messages, the
+            // actual telemetry data is inserted as the last string argument
+            static const char Rsl10BatteryTelemetryJson[] = "{\"address\":\"%s\",\"rssi\":%d,\"battery\":%0.2f}";
+
+            snprintf(telemetryBuffer, sizeof(telemetryBuffer), Rsl10BatteryTelemetryJson,
+                                                               Rsl10DeviceList[currentDevice].bdAddress,
+                                                               Rsl10DeviceList[currentDevice].lastRssi,
+                                                               Rsl10DeviceList[currentDevice].lastBattery);
+            // Send the telemetry message
+            SendTelemetry(telemetryBuffer, true);
+
+
+
+            // Clear the flag so we don't send this data again
+            Rsl10DeviceList[currentDevice].batteryDataRefreshed = false;
 
         }
-
-        // If we found updated values to send, then tack on the current rssi reading
-        if(deviceWasUpdated){
-
-            snprintf(newTelemetryString, sizeof(newTelemetryString), bt510RssiJsonObject, 
-                                                                     BT510DeviceList[i].bt510Name, 
-                                                                     BT510DeviceList[i].lastRssi);
-            // Add it to the telemetry message
-            strcat(telemetryBuffer,newTelemetryString);
-            
-            // Clear the flag, we only want to send the rssi if we've received an update, otherwise it's old data
-            deviceWasUpdated = false;
-        }
-    }
-
-    // Find the last location of the constructed string (will contain the last ',' char), and overwrite it with a closing '}'
-    telemetryBuffer[strlen(telemetryBuffer)-1] = '}';
-    
-    // Null terminate the string
-    telemetryBuffer[strlen(telemetryBuffer)] = '\0';
-
-    if(updatedValuesFound){
-        
-        Log_Debug("Telemetry message: %s\n", telemetryBuffer);
-        // Send the telemetry message
-        SendTelemetry(telemetryBuffer);
-    }
-    else{
-        Log_Debug("No new data found, not sending telemetry update\n");
-    }
-
-    free(telemetryBuffer);
-    */
+     }
 }

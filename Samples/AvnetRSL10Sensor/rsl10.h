@@ -97,14 +97,20 @@ typedef struct RSL10BatteryMessage {
 
 // Array to hold specific data for each RSL10 detected by the system
 typedef struct RSL10Device {
+    // Common data for all message types
     char bdAddress[RSL10_ADDRESS_LEN];
+    int16_t lastRssi;
+    
+    // Environmental data
     float lastTemperature;
     float lastHumidity;
     float lastPressure;
-    float lastAmbiantLight;
+    uint16_t lastAmbiantLight;
+    bool environmentalDataRefreshed;
+    
+    
+    // Movement data
     uint8_t lastSampleIndex;
-
-    //uint8_t lastSensorSettingFlags;
     uint8_t lastsampleRate;
     uint8_t lastAccelRange;
     uint8_t lastDataType;
@@ -116,13 +122,16 @@ typedef struct RSL10Device {
     float lastOrientation_y;
     float lastOrientation_z;
     float lastOrientation_w;
-    int16_t lastRssi;
+    bool movementDataRefreshed;
+
+    // Battery data
     float lastBattery;
+    bool batteryDataRefreshed;
 } RSL10Device_t;
 
-extern void SendTelemetry(const char *);
+void SendTelemetry(const char *jsonMessage, bool);
 extern void TwinReportState(const char *jsonState);
-extern RSL10Device_t RSL10DeviceList[MAX_RSL10_DEVICES];
+extern RSL10Device_t Rsl10DeviceList[MAX_RSL10_DEVICES];
 extern char authorizedDeviceList[MAX_RSL10_DEVICES][RSL10_ADDRESS_LEN];
 
 // RSL10 Specific routines
