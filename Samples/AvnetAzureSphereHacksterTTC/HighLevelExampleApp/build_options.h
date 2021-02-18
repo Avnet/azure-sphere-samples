@@ -23,7 +23,7 @@
 #endif 
 
 // Define to build for Avnet's IoT Connect platform
-//#define USE_IOT_CONNECT
+#define USE_IOT_CONNECT
 
 // If this is a IoT Conect build, make sure to enable the IOT Hub application code
 #ifdef USE_IOT_CONNECT
@@ -49,7 +49,7 @@
 #define M4_READ_PERIOD_NANO_SECONDS 0 * 1000
 
 // Defines how quickly the accelerator data is read and reported
-#define SENSOR_READ_PERIOD_SECONDS 5
+#define SENSOR_READ_PERIOD_SECONDS 60*60
 #define SENSOR_READ_PERIOD_NANO_SECONDS 0 * 1000
 
 // Define how long after processing the haltApplication direct method before the application exits

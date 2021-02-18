@@ -1,14 +1,15 @@
 {
   "SchemaVersion": 1,
-  "Name": "AvnetSK-V2",
+  "Name": "IoTCValidationV0",
   "ComponentId": "06e116bd-e3af-4bfe-a0cb-f1530b8b91ab",
   "EntryPoint": "/bin/app",
-  "CmdArgs": [ "--ConnectionType", "PnP", "--ScopeID", "0ne0008CB04" ],
+  "CmdArgs": [ "--ConnectionType", "DPS", "--ScopeID", "0ne001DB429" ],
     "Capabilities": {
     "AllowedApplicationConnections": [ "005180bc-402f-4cb3-a662-72937dbcde47" ],
     "AllowedConnections": [
       "global.azure-devices-provisioning.net",
-      "BW-IoTHub.azure-devices.net"],
+      "BW-IoTHub.azure-devices.net",
+      "poc-iotc-sphere-iothub-eu.azure-devices.net"],
     "Gpio": [
       "$SAMPLE_RGBLED_RED",
       "$SAMPLE_RGBLED_GREEN",
