@@ -352,6 +352,9 @@ static IOTHUBMESSAGE_DISPOSITION_RESULT receiveMessageCallback(IOTHUB_MESSAGE_HA
         // Set the IoTConnect Connected flag to true
         IoTCConnected = true;
 
+        SendTelemetry("{\"VersionNumber\": 1.0}", true);
+
+
 #ifdef ENABLE_IOTC_MESSAGE_DEBUG
         Log_Debug("Set the IoTCConnected flag to true!\n");
 #endif

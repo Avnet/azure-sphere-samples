@@ -30,13 +30,13 @@
 //#define REQUIRE_AUTHORIZATION
 
 // Define to build the Avnet Sales demo version of the application
-//#define RSL10_SALES_DEMO
+#define RSL10_SALES_DEMO
 
 #ifdef RSL10_SALES_DEMO
 #define USE_IOT_CONNECT
 
 // Time between sending telemetry
-#define DEFAULT_TELEMETRY_TX_TIME 2
+#define DEFAULT_TELEMETRY_TX_TIME 60
 #undef REQUIRE_AUTHORIZATION
 #else
 

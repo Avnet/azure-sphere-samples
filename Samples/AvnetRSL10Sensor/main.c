@@ -132,12 +132,18 @@ static void ClosePeripheralsAndHandlers(void);
 extern void parseRsl10Message(char *);
 extern RSL10Device_t Rsl10DeviceList[MAX_RSL10_DEVICES];
 
+#ifdef RSL10_SALES_DEMO
+void addWifiNetwork(char* , int, char*, int);
+bool networkExists(char* , int);
+#endif // RSL10_SALES_DEMO
+
 // File descriptors - initialized to invalid value
 
 #ifdef TARGET_QIIO_200
 char *cellinfo = NULL;
 #endif 
 
+ #ifndef RSL10_SALES_DEMO
 // Buttons
 static int buttonAgpioFd = -1;
 static int buttonBgpioFd = -1;
@@ -145,6 +151,7 @@ static int buttonBgpioFd = -1;
 // State variables
 static GPIO_Value_Type buttonAState = GPIO_Value_High;
 static GPIO_Value_Type buttonBState = GPIO_Value_High;
+#endif 
 
 // UART
 static int uartFd = -1;
@@ -264,6 +271,22 @@ int main(int argc, char *argv[])
     Log_Debug("Network setup successfully\n");
 #endif 
 
+#ifdef RSL10_SALES_DEMO
+
+	// Make sure that the expected wifi network is configured on this device
+	if (!networkExists("IOTDEMO", 7)) {
+		Log_Debug("Add network IOTDEMO\n");
+		addWifiNetwork("IOTDEMO", 7, "iotDemo1", 8);
+	}
+	
+	// Make sure that the expected wifi network is configured on this device
+	if (!networkExists("IOTDEMO1", 8)) {
+		Log_Debug("Add network IOTDEMO1\n");
+		addWifiNetwork("IOTDEMO1", 8, "iotDemo1", 8);
+	}
+
+#endif 
+
     bool isNetworkingReady = false;
     if ((Networking_IsNetworkingReady(&isNetworkingReady) == -1) || !isNetworkingReady) {
         Log_Debug("WARNING: Network is not ready. Device cannot connect until network is ready.\n");
@@ -294,6 +317,7 @@ int main(int argc, char *argv[])
     return exitCode;
 }
 
+#ifndef RSL10_SALES_DEMO
 /// <summary>
 ///     Button timer event:  Check the status of the button
 /// </summary>
@@ -350,7 +374,7 @@ static void ButtonPollTimerEventHandler(EventLoopTimer *timer)
 	}
 	
 }
-
+#endif 
 /// <summary>
 ///     Azure timer event:  Check connection status and send telemetry
 /// </summary>
@@ -521,6 +545,7 @@ static ExitCode InitPeripheralsAndHandlers(void)
         return ExitCode_Init_EventLoop;
     }
 
+#ifndef RSL10_SALES_DEMO
     // Open SAMPLE_BUTTON_1 GPIO as input (ButtonA)
     Log_Debug("Opening SAMPLE_BUTTON_1 as input.\n");
     buttonAgpioFd = GPIO_OpenAsInput(SAMPLE_BUTTON_1);
@@ -544,7 +569,7 @@ static ExitCode InitPeripheralsAndHandlers(void)
     if (buttonPollTimer == NULL) {
         return ExitCode_Init_ButtonPollTimer;
     }
-
+#endif 
 #ifdef OLED_SD1306
 
     // Initialize the i2c sensors
@@ -657,8 +682,10 @@ static void ClosePeripheralsAndHandlers(void)
     EventLoop_Close(eventLoop);
     EventLoop_UnregisterIo(eventLoop, uartEventReg);
 
+#ifndef RSL10_SALES_DEMO
     CloseFdAndPrintError(buttonAgpioFd, "ButtonA Fd");
     CloseFdAndPrintError(buttonBgpioFd, "ButtonB Fd");
+#endif 
 
     Log_Debug("Closing file descriptors\n");
 
@@ -1199,6 +1226,8 @@ static void UartEventHandler(EventLoop *el, int fd, EventLoop_IoEvents events, v
     Log_Debug("Exit: bytesInBuffer: %d\n", bytesInBuffer);
 #endif
 }
+
+#ifndef RSL10_SALES_DEMO
 // <summary>
 ///     Check whether a given button has just been pressed/released.
 /// </summary>
@@ -1221,6 +1250,7 @@ static bool ButtonStateChanged(int fd, GPIO_Value_Type *oldState)
 
     return didButtonStateChange;
 }
+#endif 
 
 #ifdef OLED_SD1306
 /// <summary>
@@ -1239,3 +1269,69 @@ static void UpdateOledEventHandler(EventLoopTimer *timer)
 }
 
 #endif 
+
+#ifdef RSL10_SALES_DEMO
+// Add a wifi network to the device. 
+void addWifiNetwork(char* ssid, int ssidLength, char* psk, int pskLength) {
+	
+	Log_Debug("Adding ssid: %.*s\n", ssidLength, ssid);
+
+	// Add the new network
+	int networkId = WifiConfig_AddNetwork();
+	int configResult = (networkId == -1) ? -1 : 0;
+
+	// Create a new network entry.
+	if (configResult != -1) {
+		configResult =
+			WifiConfig_SetSSID(networkId, ssid, (size_t)ssidLength);
+	}
+
+	// Set the access point security attributes
+	if (configResult != -1) {
+			configResult = WifiConfig_SetSecurityType(networkId, WifiConfig_Security_Wpa2_Psk);
+			if (configResult != -1) {
+				configResult =
+					WifiConfig_SetPSK(networkId, psk, (size_t)pskLength);
+			}
+	}
+
+	// Use targeted scan
+	if (configResult != -1) {
+		configResult = WifiConfig_SetTargetedScanEnabled(networkId, true);
+	}
+
+	// Enable the network
+	if (configResult != -1) {
+		configResult = WifiConfig_SetNetworkEnabled(networkId, true);
+	}
+
+	// If an error occured after creating the network but before persisting it,
+	// then forget the network
+	if (networkId != -1 && configResult == -1) {
+		WifiConfig_ForgetNetworkById(networkId);
+	}
+
+	if (configResult == 0) {
+		Log_Debug("INFO: Wi-Fi network details stored successfully.\n");
+	}
+	else {
+		Log_Debug("ERROR: Store Wi-Fi network failed: %s (%d).\n", strerror(errno), errno);
+	}
+}
+
+// Check to see if a network already exists on a system
+bool networkExists(char* ssid, int ssidLength)
+{
+	ssize_t numNetworks = WifiConfig_GetStoredNetworkCount();
+	WifiConfig_StoredNetwork networkArray[numNetworks];
+	WifiConfig_GetStoredNetworks(networkArray, (size_t)numNetworks);
+
+	for (int i = 0; i < numNetworks; i++) {
+
+		if (strncmp(ssid, networkArray[i].ssid, (size_t)ssidLength) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+#endif // RSL10_SALES_DEMO
