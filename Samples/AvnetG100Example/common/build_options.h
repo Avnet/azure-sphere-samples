@@ -14,7 +14,6 @@
 #define GUARDIAN_100
 
 #ifdef GUARDIAN_100
-#undef OLED_SD1306
 #define USE_SK_RGB_FOR_IOT_HUB_CONNECTION_STATUS
 
 #endif // GUARDIAN_100
@@ -66,20 +65,6 @@
 #define IOT_PLUG_AND_PLAY_MODEL_ID ""
 
 #endif 
-
-//////////////////////////////////////////////////////////////////////////////////////////////////
-//
-//  Optional Hardware options
-//
-//  OLED_SD1306: Enable to add OLED display functionality to the project
-//
-//  To use an optional OLED dispolay
-//  Install a 128x64 OLED display onto the unpopulated J7 Display connector
-//  https://www.amazon.com/gp/product/B06XRCQZRX/ref=ppx_yo_dt_b_search_asin_title?ie=UTF8&psc=1
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////
-
-//#define OLED_SD1306
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 //

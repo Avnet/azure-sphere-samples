@@ -27,16 +27,9 @@
 
 #include "eventloop_timer_utilities.h"
 
-#ifdef OLED_SD1306
-static void UpdateOledEventHandler(EventLoopTimer *timer);
-#endif
-
 void CloseFdAndPrintError(int fd, const char *fdName);
 
 static EventLoopTimer *buttonPollTimer = NULL;
-#ifdef OLED_SD1306
-static EventLoopTimer *oledUpdateTimer = NULL;
-#endif 
 
 static ExitCode_CallbackType failureCallbackFunction = NULL;
 static UserInterface_ButtonPressedCallbackType buttonPressedCallbackFunction = NULL;
@@ -81,20 +74,6 @@ ExitCode UserInterface_Initialise(EventLoop *el,
     failureCallbackFunction = failureCallback;
     buttonPressedCallbackFunction = buttonPressedCallback;
 
-#ifdef OLED_SD1306
-
-    // Initialize the i2c buss to drive the OLED
-    lp_imu_initialize();
-
-    // Set up a timer to drive quick oled updates.
-    static const struct timespec oledUpdatePeriod = {.tv_sec = 0, .tv_nsec = 100 * 1000 * 1000};
-    oledUpdateTimer = CreateEventLoopPeriodicTimer(el, &UpdateOledEventHandler,
-                                                   &oledUpdatePeriod);
-    if (oledUpdateTimer == NULL) {
-        return ExitCode_Init_OledUpdateTimer;
-    }
-#endif 
-
 #if (defined(USE_SK_RGB_FOR_IOT_HUB_CONNECTION_STATUS) && defined(IOT_HUB_APPLICATION))    // Initailize the user LED FDs,
     for (int i = 0; i < RGB_NUM_LEDS; i++) {
         gpioConnectionStateLedFds[i] = GPIO_OpenAsOutput(gpioConnectionStateLeds[i],
@@ -112,10 +91,6 @@ ExitCode UserInterface_Initialise(EventLoop *el,
 void UserInterface_Cleanup(void)
 {
     DisposeEventLoopTimer(buttonPollTimer);
-
-#ifdef OLED_SD1306
-    DisposeEventLoopTimer(oledUpdateTimer);
-#endif     
 
 #if (defined(USE_SK_RGB_FOR_IOT_HUB_CONNECTION_STATUS) && defined(IOT_HUB_APPLICATION))    // Turn the WiFi connection status LEDs off
     setConnectionStatusLed(RGB_No_Connections);
@@ -148,23 +123,6 @@ void updateConnectionStatusLed(void)
     setConnectionStatusLed(networkStatus);
 }
 #endif // (defined(USE_SK_RGB_FOR_IOT_HUB_CONNECTION_STATUS) && defined(IOT_HUB_APPLICATION))
-
-#ifdef OLED_SD1306
-/// <summary>
-///     OLED timer handler: refresh the OLED screen/data
-/// </summary>
-static void UpdateOledEventHandler(EventLoopTimer *timer)
-{
-
-    if (ConsumeEventLoopTimerEvent(timer) != 0) {
-        return;
-    }
-
-	// Update/refresh the OLED data
-	update_oled();
-}
-
-#endif // OLED_SD1306
 
 /// <summary>
 ///     Read and manage the memory high water mark

@@ -94,11 +94,6 @@ Instructions to add a real time application
 
 #include "m4_support.h"
 
-#ifdef OLED_SD1306
-// Status variables
-bool RTCore_status = false;
-#endif 
-
 #ifdef M4_INTERCORE_COMMS
 
 m4_support_t m4Array[] = {
@@ -284,9 +279,6 @@ sig_atomic_t genericM4Init(void* thisM4Entry){
 
     }
     
-#ifdef OLED_SD1306
-    RTCore_status = true;
-#endif         
     return ExitCode_Success;
 }
 
@@ -654,15 +646,6 @@ void groveGPSRawDataHandler(void* msg){
     Log_Debug("RX Raw Data: fix_qual: %d, numstats: %d, lat: %lf, lon: %lf, alt: %.2f\n",
                             messageData->fix_qual, messageData->numsats, messageData->lat, messageData->lon, messageData->alt);
         
-#ifdef OLED_SD1306
-    // Update the global GPS variables
-    lat = messageData->lat;
-    lon = messageData->lon;
-    fix_qual = messageData->fix_qual;
-    numsats = messageData->numsats;
-    alt = messageData->alt;
-#endif 
-
 #ifdef IOT_HUB_APPLICATION    
     //Check to see if the lat or lon have changed.  If so, update the last* values and send
     // the new data to the IoTHub as device twin update
