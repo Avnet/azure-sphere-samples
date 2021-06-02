@@ -35,7 +35,7 @@
 #define IOT_HUB_APPLICATION
 
 // Use this model for testing and point the Azure IoT Explorer to the project/PlugNPlay directory
-#define IOT_PLUG_AND_PLAY_MODEL_ID "dtmi:avnet:defaultG100Validation;1" // https://docs.microsoft.com/en-us/azure/iot-pnp/overview-iot-plug-and-play                                   
+#define IOT_PLUG_AND_PLAY_MODEL_ID "dtmi:avnet:mt3620_g100;1" // https://docs.microsoft.com/en-us/azure/iot-pnp/overview-iot-plug-and-play                                   
 
 #else // !USE_PNP
 // Define a NULL model ID if we're not building for PnP
@@ -120,7 +120,7 @@
 //     
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define ENABLE_TELEMETRY_RESEND_LOGIC
+//#define ENABLE_TELEMETRY_RESEND_LOGIC
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -132,7 +132,7 @@
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define M4_INTERCORE_COMMS
+//#define M4_INTERCORE_COMMS
 
 #ifdef M4_INTERCORE_COMMS
 #define MAX_REAL_TIME_APPS 2
@@ -155,7 +155,7 @@
 #define SENSOR_READ_PERIOD_NANO_SECONDS 0 * 1000
 
 // Defines the default period to send telemetry data to the IoTHub
-#define SEND_TELEMETRY_PERIOD_SECONDS 30
+#define SEND_TELEMETRY_PERIOD_SECONDS 5
 #define SEND_TELEMETRY_PERIOD_NANO_SECONDS 0 * 1000
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
