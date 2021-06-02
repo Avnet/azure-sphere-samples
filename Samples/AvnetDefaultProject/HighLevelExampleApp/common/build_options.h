@@ -11,7 +11,7 @@
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
-//#define GUARDIAN_100
+#define GUARDIAN_100
 
 #ifdef GUARDIAN_100
 #undef OLED_SD1306
@@ -33,7 +33,7 @@
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
 // If your application is going to connect straight to a IoT Hub or IoT Connect, then enable this define.
-//#define IOT_HUB_APPLICATION
+#define IOT_HUB_APPLICATION
 
 // Define to build for Avnet's IoT Connect platform
 //#define USE_IOT_CONNECT
