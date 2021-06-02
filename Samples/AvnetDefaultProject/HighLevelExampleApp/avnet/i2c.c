@@ -47,7 +47,7 @@ static void platform_delay(uint32_t ms)
  */
 static void platform_init(void)
 {
-    i2cFd = I2CMaster_Open(AVNET_MT3620_SK_ISU2_I2C);
+    i2cFd = I2CMaster_Open(SAMPLE_LSM6DSO_I2C);
     if (i2cFd < 0) {
         Log_Debug("ERROR: I2CMaster_Open: errno=%d (%s)\n", errno, strerror(errno));
         return;
