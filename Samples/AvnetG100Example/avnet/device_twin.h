@@ -34,7 +34,6 @@ SOFTWARE.
 #include "build_options.h"
 #include "../common/azure_iot.h"
 #include "../common/cloud.h"
-#include <stdarg.h>
 
 // Azure IoT SDK
 #include <azure_sphere_provisioning.h>

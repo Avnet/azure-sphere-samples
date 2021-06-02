@@ -54,7 +54,6 @@
 #include "build_options.h"
 #include "../avnet/device_twin.h"
 #include "../avnet/direct_methods.h"
-#include "../avnet/oled.h"
 #include "../avnet/iotConnect.h"
 
 // If we have real time applications, include the support implementation
@@ -94,6 +93,13 @@ static void ReadSensorTimerEventHandler(EventLoopTimer *timer);
 
 // Variable used to update sensorPollTimer
 int readSensorPeriod = SENSOR_READ_PERIOD_SECONDS;
+
+typedef struct
+{
+	uint8_t SSID[WIFICONFIG_SSID_MAX_LENGTH];
+	uint32_t frequency_MHz;
+	int8_t rssi;
+} network_var;
 
 // Global variable to hold wifi network configuration data
 network_var network_data;

@@ -1,15 +1,12 @@
 /* Copyright (c) Microsoft Corporation. All rights reserved.
    Licensed under the MIT License. */
 
-#include <errno.h>
-#include <string.h>
-
-#include <applibs/gpio.h>
 #include <applibs/log.h>
 
 #include "user_interface.h"
 #include "build_options.h"
-#include "../avnet/oled.h"
+
+#include "../avnet/device_twin.h"
 
 // The following #include imports a "sample appliance" definition. This app comes with multiple
 // implementations of the sample appliance, each in a separate directory, which allow the code to
