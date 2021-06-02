@@ -4,22 +4,6 @@
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 //
-//  GUARDIAN_100: Build configuration targeting G100 options
-//
-//  If you are using an Avnet Guardian 100 device, then enable this build flag.  When enabled
-//  the project will exclude code that's specific to the Avnet Starter kits.
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////
-
-#define GUARDIAN_100
-
-#ifdef GUARDIAN_100
-#define USE_SK_RGB_FOR_IOT_HUB_CONNECTION_STATUS
-
-#endif // GUARDIAN_100
-
-//////////////////////////////////////////////////////////////////////////////////////////////////
-//
 //  Connectivity options
 //
 //  IOT_HUB_APPLICATION: Enable for any configuration that connects to an IoTHub/IoTCentral.
@@ -44,21 +28,14 @@
 #endif 
 
 // Define if you want to build the Azure IoT Hub/IoTCentral Plug and Play application functionality
-//#define USE_PNP
+#define USE_PNP
 
 // Make sure we're using the IOT Hub code for the PNP configuration
 #ifdef USE_PNP
 #define IOT_HUB_APPLICATION
 
-#ifdef GUARDIAN_100
 // Use this model for testing and point the Azure IoT Explorer to the project/PlugNPlay directory
 #define IOT_PLUG_AND_PLAY_MODEL_ID "dtmi:avnet:defaultG100Validation;1" // https://docs.microsoft.com/en-us/azure/iot-pnp/overview-iot-plug-and-play                                   
-
-#else
-
-// Use this model for testing and point the Azure IoT Explorer to the project/PlugNPlay directory
-#define IOT_PLUG_AND_PLAY_MODEL_ID "dtmi:avnet:defaultValidation;1" // https://docs.microsoft.com/en-us/azure/iot-pnp/overview-iot-plug-and-play                                   
-#endif // GUARDIAN_100
 
 #else // !USE_PNP
 // Define a NULL model ID if we're not building for PnP
@@ -87,7 +64,7 @@
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
-//#define USE_SK_RGB_FOR_IOT_HUB_CONNECTION_STATUS
+#define USE_SK_RGB_FOR_IOT_HUB_CONNECTION_STATUS
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -143,7 +120,7 @@
 //     
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
-//#define ENABLE_TELEMETRY_RESEND_LOGIC
+#define ENABLE_TELEMETRY_RESEND_LOGIC
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -155,7 +132,7 @@
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
-//#define M4_INTERCORE_COMMS
+#define M4_INTERCORE_COMMS
 
 #ifdef M4_INTERCORE_COMMS
 #define MAX_REAL_TIME_APPS 2
@@ -163,9 +140,8 @@
 
 // List of currently implemented Azure RTOS real time applications 
 // define a max of two applications
-//#define ENABLE_GROVE_GPS_RT_APP  // Read a Grove GPS UART sensor
-//#define ENABLE_ALS_PT19_RT_APP     // Read the Starter Kit on-board light sensor
-//#define ENABLE_GENERIC_RT_APP      // Example application that implements all the interfaces to work with this high level implementation
+#define ENABLE_ALS_PT19_RT_APP     // Read the Starter Kit on-board light sensor
+#define ENABLE_GENERIC_RT_APP      // Example application that implements all the interfaces to work with this high level implementation
 #endif 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -173,7 +149,6 @@
 //  Default timer values
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////
-
 
 // Defines how often the read sensor periodic handler runs
 #define SENSOR_READ_PERIOD_SECONDS 15
@@ -183,7 +158,6 @@
 #define SEND_TELEMETRY_PERIOD_SECONDS 30
 #define SEND_TELEMETRY_PERIOD_NANO_SECONDS 0 * 1000
 
-
 //////////////////////////////////////////////////////////////////////////////////////////////////
 //
 //  Application/Device Constants
@@ -191,21 +165,8 @@
 //  These items will be sent to the IoT Hub on connection as read only device twins
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////
-#define VERSION_STRING "AvnetTemplate-V2" // {"versionString"; "AvnetTemplate-V2"}
+#define VERSION_STRING "AvnetG100Template-V2" // {"versionString"; "AvnetG100Template-V2"}
 #define DEVICE_MFG "Avnet" // {"manufacturer"; "Avnet"}
-#ifdef GUARDIAN_100
-#define DEVICE_MODEL "Azure Sphere Guardian 100" // {"model"; "Avnet Guardian 100"}
-#else
-#define DEVICE_MODEL "Azure Sphere Starter Kit" // {"model"; "Avnet Starter Kit"}
-#endif 
-
-//////////////////////////////////////////////////////////////////////////////////////////////////
-//
-//  Debug control
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////
-
-// Enables I2C read/write debug
-//#define ENABLE_READ_WRITE_DEBUG
+#define DEVICE_MODEL "Azure Sphere Guardian 100" // {"model"; "Azure Sphere Guardian 100"}
 
 #endif 

@@ -149,12 +149,6 @@ int findArrayIndexByFd(int);
 // Define real time application specific functions
 /////////////////////////////////////////////////////////////////////////////////////
 
-#ifdef ENABLE_GROVE_GPS_RT_APP
-void groveGPSRawDataHandler(void*);
-#endif 
-#ifdef ENABLE_ALS_PT19_RT_APP
-void alsPt19RawDataHandler(void*);
-#endif
 #ifdef ENABLE_GENERIC_RT_APP
 void referenceRawDataHandler(void*);
 #endif

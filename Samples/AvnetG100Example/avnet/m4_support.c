@@ -98,34 +98,6 @@ Instructions to add a real time application
 
 m4_support_t m4Array[] = {
 
-#ifdef ENABLE_ALS_PT19_RT_APP
-     // The Avnet Light Sensor application reads the ALS-PT19 light sensor on the Avnet Starter Kit
-    {
-        .m4Name="AvnetLightSensor",
-        .m4RtComponentID="b2cec904-1c60-411b-8f62-5ffe9684b8ce",
-        .m4InitHandler=genericM4Init,
-        .m4rawDataHandler=alsPt19RawDataHandler,
-        .m4Handler=genericM4Handler,
-        .m4CleanupHandler=genericM4Cleanup,
-	    .m4TelemetryHandler=genericM4RequestTelemetry,
-        .m4InterfaceVersion=V0
-    },
-#endif 
-
-#ifdef ENABLE_GROVE_GPS_RT_APP
-    // The AvnetGroveGPS app captures data from a Grove GPS V1.2 UART device
-    {
-        .m4Name="AvnetGroveGPS",
-        .m4RtComponentID="592b46b7-5552-4c58-9163-9185f46b96aa",
-        .m4InitHandler=genericM4Init,
-        .m4Handler=genericM4Handler,
-        .m4rawDataHandler=groveGPSRawDataHandler,
-        .m4CleanupHandler=genericM4Cleanup,
-	    .m4TelemetryHandler=genericM4RequestTelemetry,
-        .m4InterfaceVersion=V0
-    },
-#endif      
-
 #ifdef ENABLE_GENERIC_RT_APP
     // The AvnetGenericRTApp demonstrates how to use this common interface
     {
@@ -554,34 +526,6 @@ int findArrayIndexByFd(int fd){
 //
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifdef ENABLE_ALS_PT19_RT_APP
-/// <summary>
-///  referenceRawDataHandler()
-///
-/// This handler is called when the high level application receives a raw data read response from the
-/// AvnetGenericRT real time application.
-///
-///  This handler is included as a refeence for your own custom raw data handler.
-///
-/// </summary>
-void alsPt19RawDataHandler(void* msg){
-
-    // Define the expected data structure.  Note this struct came from the AvnetGroveGPS real time application code
-    typedef struct
-    {
-    	INTER_CORE_CMD cmd;
-    	uint32_t sensorSampleRate;
-        uint32_t lightSensorAdcData;
-    } IC_COMMAND_BLOCK_ALS_PT19;
-
-    IC_COMMAND_BLOCK_ALS_PT19 *messageData = (IC_COMMAND_BLOCK_ALS_PT19*) msg;
-    Log_Debug("RX Raw Data: lightSensorAdcData: %d\n", messageData->lightSensorAdcData);
-
-    // Add message structure and logic to do something with the raw data from the 
-    // real time application
-}
-#endif 
-
 #ifdef ENABLE_GENERIC_RT_APP
 /// <summary>
 ///  referenceRawDataHandler()
@@ -612,65 +556,4 @@ void referenceRawDataHandler(void* msg){
 
 }
 #endif 
-#ifdef ENABLE_GROVE_GPS_RT_APP
-
-/// <summary>
-///  groveGPSRawDataHandler()
-///
-/// This handler is called when the high level application receives a raw data read response from the
-/// AvnetGroveGPS real time application.  The handler pulls the GPS data from the response message, checks
-/// to see if the data is different from the last changed data, and if so sends up a device twin update with 
-/// the location data.
-///
-/// </summary>
-void groveGPSRawDataHandler(void* msg){
-
-    // Track the lat/long so we only send device twin updates with different data
-    static double lastLat;
-    static double lastLon;
-
-    // Define the expected data structure.  Note this struct came from the AvnetGroveGPS real time application code
-    typedef struct
-    {
-    	INTER_CORE_CMD cmd;
-	    uint32_t sensorSampleRate;
-	    double lat;
-        double lon;
-        int fix_qual;
-	    int numsats;
-        float alt;
-    } IC_COMMAND_BLOCK_GROVE_GPS;
-
-    // Cast the message so we can index into the data to pull the GPS data out of it
-    IC_COMMAND_BLOCK_GROVE_GPS *messageData = (IC_COMMAND_BLOCK_GROVE_GPS*) msg;
-    Log_Debug("RX Raw Data: fix_qual: %d, numstats: %d, lat: %lf, lon: %lf, alt: %.2f\n",
-                            messageData->fix_qual, messageData->numsats, messageData->lat, messageData->lon, messageData->alt);
-        
-#ifdef IOT_HUB_APPLICATION    
-    //Check to see if the lat or lon have changed.  If so, update the last* values and send
-    // the new data to the IoTHub as device twin update
-    if((lastLat != messageData->lat) && (lastLon != messageData->lon)){
-    
-        // Define the JSON structure
-        static const char gpsDataJsonString[] = "{\"DeviceLocation\":{\"lat\": %.5f,\"lon\": %.5f,\"alt\": %.2f}}";
-
-        size_t twinBufferSize = sizeof(gpsDataJsonString)+48;
-        char *pjsonBuffer = (char *)malloc(twinBufferSize);
-	    if (pjsonBuffer == NULL) {
-            Log_Debug("ERROR: not enough memory to report GPS location data.");
-    	}
-
-        // Build out the JSON and send it as a device twin update
-	    snprintf(pjsonBuffer, twinBufferSize, gpsDataJsonString, messageData->lat, messageData->lon, messageData->alt );
-	    Log_Debug("[MCU] Updating device twin: %s\n", pjsonBuffer);
-        TwinReportState(pjsonBuffer);
-	    free(pjsonBuffer);
-    }
-#endif         
-
-}
-#endif 
-
-
-
 #endif // M4_INTERCORE_COMMS
