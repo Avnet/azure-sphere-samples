@@ -27,22 +27,11 @@
 
 #include "eventloop_timer_utilities.h"
 
-#ifndef GUARDIAN_100
-static void ButtonPollTimerEventHandler(EventLoopTimer *timer);
-static bool IsButtonPressed(int fd, GPIO_Value_Type *oldState);
-#endif // !GUARDIAN_100
-
 #ifdef OLED_SD1306
 static void UpdateOledEventHandler(EventLoopTimer *timer);
 #endif
 
 void CloseFdAndPrintError(int fd, const char *fdName);
-
-#ifndef GUARDIAN_100
-// File descriptors - initialized to invalid value
-static int buttonAGpioFd = -1;
-static int buttonBGpioFd = -1;
-#endif 
 
 static EventLoopTimer *buttonPollTimer = NULL;
 #ifdef OLED_SD1306
@@ -51,12 +40,6 @@ static EventLoopTimer *oledUpdateTimer = NULL;
 
 static ExitCode_CallbackType failureCallbackFunction = NULL;
 static UserInterface_ButtonPressedCallbackType buttonPressedCallbackFunction = NULL;
-
-#ifndef GUARDIAN_100
-// State variables
-static GPIO_Value_Type buttonAState = GPIO_Value_High;
-static GPIO_Value_Type buttonBState = GPIO_Value_High;
-#endif // !GUARDIAN_100
 
 #if (defined(USE_SK_RGB_FOR_IOT_HUB_CONNECTION_STATUS) && defined(IOT_HUB_APPLICATION))
 #define RGB_NUM_LEDS 3
@@ -75,54 +58,6 @@ void setConnectionStatusLed(RGB_Status networkStatus)
                   (networkStatus & (1 << RGB_LED3_INDEX)) ? GPIO_Value_Low : GPIO_Value_High);
 }
 #endif // (defined(USE_SK_RGB_FOR_IOT_HUB_CONNECTION_STATUS) && defined(IOT_HUB_APPLICATION))
-
-#ifndef GUARDIAN_100
-/// <summary>
-///     Check whether a given button has just been pressed.
-/// </summary>
-/// <param name="fd">The button file descriptor</param>
-/// <param name="oldState">Old state of the button (pressed or released)</param>
-/// <returns>true if pressed, false otherwise</returns>
-static bool IsButtonPressed(int fd, GPIO_Value_Type *oldState)
-{
-    bool isButtonPressed = false;
-    GPIO_Value_Type newState;
-    int result = GPIO_GetValue(fd, &newState);
-    if (result != 0) {
-        Log_Debug("ERROR: Could not read button GPIO: %s (%d).\n", strerror(errno), errno);
-        failureCallbackFunction(ExitCode_IsButtonPressed_GetValue);
-    } else {
-        // Button is pressed if it is low and different than last known state.
-        isButtonPressed = (newState != *oldState) && (newState == GPIO_Value_Low);
-        *oldState = newState;
-    }
-
-    return isButtonPressed;
-}
-
-/// <summary>
-///     Button timer event:  Check the status of the button
-/// </summary>
-static void ButtonPollTimerEventHandler(EventLoopTimer *timer)
-{
-    if (ConsumeEventLoopTimerEvent(timer) != 0) {
-        failureCallbackFunction(ExitCode_ButtonTimer_Consume);
-        return;
-    }
-
-    if (IsButtonPressed(buttonAGpioFd, &buttonAState) && NULL != buttonPressedCallbackFunction) {
-
-        // This callback is set from main.c with a call to UserInterface_Initialise()
-        buttonPressedCallbackFunction(UserInterface_Button_A);
-    }
-
-    if (IsButtonPressed(buttonBGpioFd, &buttonBState) && NULL != buttonPressedCallbackFunction) {
-        
-        // This callback is set from main.c with a call to UserInterface_Initialise()
-        buttonPressedCallbackFunction(UserInterface_Button_B);
-    }
-}
-#endif // !GUARDIAN_100    
 
 /// <summary>
 ///     Closes a file descriptor and prints an error on failure.
@@ -145,32 +80,6 @@ ExitCode UserInterface_Initialise(EventLoop *el,
 {
     failureCallbackFunction = failureCallback;
     buttonPressedCallbackFunction = buttonPressedCallback;
-
-#ifndef GUARDIAN_100
-    // Open SAMPLE_BUTTON_1 GPIO as input
-    Log_Debug("Opening SAMPLE_BUTTON_1 as input.\n");
-    buttonAGpioFd = GPIO_OpenAsInput(SAMPLE_BUTTON_1);
-    if (buttonAGpioFd == -1) {
-        Log_Debug("ERROR: Could not open SAMPLE_BUTTON_1: %s (%d).\n", strerror(errno), errno);
-        return ExitCode_Init_Button;
-    }
-
-    // Open SAMPLE_BUTTON_2 GPIO as input
-    Log_Debug("Opening SAMPLE_BUTTON_2 as input.\n");
-    buttonBGpioFd = GPIO_OpenAsInput(SAMPLE_BUTTON_2);
-    if (buttonBGpioFd == -1) {
-        Log_Debug("ERROR: Could not open SAMPLE_BUTTON_2: %s (%d).\n", strerror(errno), errno);
-        return ExitCode_Init_Button;
-    }
-
-    // Set up a timer to poll for button events.
-    static const struct timespec buttonPressCheckPeriod = {.tv_sec = 0, .tv_nsec = 1000 * 1000};
-    buttonPollTimer =
-        CreateEventLoopPeriodicTimer(el, &ButtonPollTimerEventHandler, &buttonPressCheckPeriod);
-    if (buttonPollTimer == NULL) {
-        return ExitCode_Init_ButtonPollTimer;
-    }
-#endif // !GUARDIAN_100
 
 #ifdef OLED_SD1306
 
@@ -203,11 +112,6 @@ ExitCode UserInterface_Initialise(EventLoop *el,
 void UserInterface_Cleanup(void)
 {
     DisposeEventLoopTimer(buttonPollTimer);
-
-#ifndef GUARDIAN_100
-    CloseFdAndPrintError(buttonAGpioFd, "ButtonA");
-    CloseFdAndPrintError(buttonBGpioFd, "ButtonB");
-#endif
 
 #ifdef OLED_SD1306
     DisposeEventLoopTimer(oledUpdateTimer);

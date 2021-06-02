@@ -72,9 +72,6 @@ void ClosePeripheralsAndHandlers(void);
 
 // Interface callbacks
 static void ExitCodeCallbackHandler(ExitCode ec);
-#ifndef GUARDIAN_100
-static void ButtonPressedCallbackHandler(UserInterface_Button button);
-#endif // !GUARDIAN_100
 
 #ifdef IOT_HUB_APPLICATION
 // Cloud
@@ -154,31 +151,6 @@ static void ExitCodeCallbackHandler(ExitCode ec)
 {
     exitCode = ec;
 }
-
-#ifndef GUARDIAN_100
-static void ButtonPressedCallbackHandler(UserInterface_Button button)
-{
-
-#ifdef OLED_SD1306
-    if (button == UserInterface_Button_A) {
-        Log_Debug("Button A pressed!\n");
-        oled_next_screen();
-
-    } else if (button == UserInterface_Button_B) {
-        Log_Debug("Button B pressed!\n");
-        oled_previous_screen();
-    }
-#else // !OLED_SD1306
-    if (button == UserInterface_Button_A) {
-        Log_Debug("Button A pressed!\n");
-
-    } else if (button == UserInterface_Button_B) {
-        Log_Debug("Button B pressed!\n");
-    }
-
-#endif // OLED_SD1306
-}
-#endif // !GUARDIAN_100
 
 #ifdef IOT_HUB_APPLICATION
 static void DisplayAlertCallbackHandler(const char *alertMessage)
@@ -293,17 +265,9 @@ static ExitCode InitPeripheralsAndHandlers(void)
     }
 #endif
 
-
     // Initialize the button user interface
-#ifdef GUARDIAN_100
     ExitCode interfaceExitCode =
         UserInterface_Initialise(eventLoop, NULL, ExitCodeCallbackHandler);
-#else // !GUARDIAN_100    
-    ExitCode interfaceExitCode =
-        UserInterface_Initialise(eventLoop, ButtonPressedCallbackHandler, ExitCodeCallbackHandler);
-#endif // GUARDIAN_100    
-
-
 
     if (interfaceExitCode != ExitCode_Success) {
         return interfaceExitCode;

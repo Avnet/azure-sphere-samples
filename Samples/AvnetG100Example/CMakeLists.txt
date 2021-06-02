@@ -34,8 +34,6 @@ target_link_libraries(${PROJECT_NAME} m azureiot applibs gcc_s c)
 
 # Target hardware for the sample.  Select the line that corresponds to your Avnet Kit and revision
 set(TARGET_HARDWARE "avnet_g100") # For Guardian 100 builds make sure to enable the GUARDIAN_100 build option in build_options.h
-#set(TARGET_HARDWARE "avnet_mt3620_sk_rev2")
-#set(TARGET_HARDWARE "avnet_mt3620_sk")
 
 set(TARGET_DEFINITION "sample_appliance.json")
 

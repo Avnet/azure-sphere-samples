@@ -82,9 +82,6 @@ int desiredVersion = 0;
 //                void <yourFunctionName>(void* thisTwinPtr, JSON_Object *desiredProperties);
 // 
 twin_t twinArray[] = {
-#ifndef GUARDIAN_100
-	{.twinKey = "appLed",.twinVar = &appLedIsOn,.twinFd = &appLedFd,.twinGPIO = SAMPLE_APP_LED,.twinType = TYPE_BOOL,.active_high = false,.twinHandler = (genericGPIODTFunction)},
-#endif // !GUARDIAN_100    
     {.twinKey = "sensorPollPeriod",.twinVar = &readSensorPeriod,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_INT,.active_high = true,.twinHandler = (setSensorPollTimerFunction)},   
     {.twinKey = "telemetryPeriod",.twinVar = &sendTelemetryPeriod,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_INT,.active_high = true,.twinHandler = (setTelemetryTimerFunction)},
 #ifdef M4_INTERCORE_COMMS

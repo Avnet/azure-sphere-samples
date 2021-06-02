@@ -32,7 +32,6 @@ SOFTWARE.
 
 #include <stdio.h>
 #include <stdint.h>
-#include "sd1306.h"
 #include "applibs_versions.h"
 #include <applibs/wificonfig.h>
 #include "device_twin.h"
