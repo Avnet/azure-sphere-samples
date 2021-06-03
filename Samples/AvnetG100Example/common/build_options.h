@@ -16,7 +16,7 @@
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
 // If your application is going to connect straight to a IoT Hub or IoT Connect, then enable this define.
-#define IOT_HUB_APPLICATION
+//#define IOT_HUB_APPLICATION
 
 // Define to build for Avnet's IoT Connect platform
 //#define USE_IOT_CONNECT
@@ -28,7 +28,7 @@
 #endif 
 
 // Define if you want to build the Azure IoT Hub/IoTCentral Plug and Play application functionality
-#define USE_PNP
+//#define USE_PNP
 
 // Make sure we're using the IOT Hub code for the PNP configuration
 #ifdef USE_PNP
@@ -151,11 +151,11 @@
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Defines how often the read sensor periodic handler runs
-#define SENSOR_READ_PERIOD_SECONDS 15
+#define SENSOR_READ_PERIOD_SECONDS 14
 #define SENSOR_READ_PERIOD_NANO_SECONDS 0 * 1000
 
 // Defines the default period to send telemetry data to the IoTHub
-#define SEND_TELEMETRY_PERIOD_SECONDS 5
+#define SEND_TELEMETRY_PERIOD_SECONDS 15
 #define SEND_TELEMETRY_PERIOD_NANO_SECONDS 0 * 1000
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
