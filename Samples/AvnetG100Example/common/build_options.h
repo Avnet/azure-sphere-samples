@@ -34,8 +34,13 @@
 #ifdef USE_PNP
 #define IOT_HUB_APPLICATION
 
-// Use this model for testing and point the Azure IoT Explorer to the project/PlugNPlay directory
+// Use this model for exercising the certified PnP implementation, this model is in the public repo
 #define IOT_PLUG_AND_PLAY_MODEL_ID "dtmi:avnet:mt3620_g100;1" // https://docs.microsoft.com/en-us/azure/iot-pnp/overview-iot-plug-and-play                                   
+
+// Use this model for testing and exercising new features added since the certification June 2021
+// This is a local model, i.e.,  this model is NOT in the public repo
+//#define IOT_PLUG_AND_PLAY_MODEL_ID "dtmi:avnet:mt3620_g100;2" // https://docs.microsoft.com/en-us/azure/iot-pnp/overview-iot-plug-and-play                                   
+
 
 #else // !USE_PNP
 // Define a NULL model ID if we're not building for PnP
@@ -121,6 +126,49 @@
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
 //#define ENABLE_TELEMETRY_RESEND_LOGIC
+
+//////////////////////////////////////////////////////////////////////////////////////////////////
+//
+//  Read and process incomming data from the G100 external USB UART device
+//
+//  ENABLE_UART_RX: Enable logic receives data from the G100 USB Type-B connector and process' it
+//
+//  This logic opens the UART connected to the G100 USB Type-B port and reads data into a buffer.
+//  The data will be read until a '\n' new line character is received.  At that time the entire 
+//  message will be passed to a routine parseAndSendToAzure().  parseAndSendToAzure() will check
+//  to see if the incomming data is valid JSON and if so, it will pass the entire message up to the
+//  IoTHub.  Otherwise, the message is output to debug.
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////
+
+//#define ENABLE_UART_RX
+
+//////////////////////////////////////////////////////////////////////////////////////////////////
+//
+//  Use the G100 external UART for debug
+//
+//  ENABLE_DEBUG_TO_UART: Enable logic that sends key evnets to the G100 USB Type-B connector.
+//  Events that will be sent . . . 
+//    Telemetry JSON
+//    Device Twin Reported Properties JSON
+//    Direct Method called (name of direct method)
+//    IoTHub connection/disconnection events
+//    <Your custom debug>
+//
+//  A new device twin property is also included in the logic called "enableUartDebug."  This
+//  boolean device twin can enable/disable sending debug messages to the exernal UART at runtime
+//
+//  ENABLE_DEBUG_BY_DEFAULT controls the initial state of the device twin variable.  When set to 
+//  "true", debug is enabled by default, and when set to "false" it's disabled by default.
+//
+//  To see the debug connect the G100 to your development PC, open a terminal application such as
+//  TeraTerm.  Open the port with settings 115200, 8, N, 1.  By default the application enables
+//  hardware flow control (RTS/CTS).
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////
+
+//#define ENABLE_DEBUG_TO_UART
+#define ENABLE_DEBUG_BY_DEFAULT true
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 //

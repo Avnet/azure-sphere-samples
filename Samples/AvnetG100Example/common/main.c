@@ -118,7 +118,7 @@ static void TerminationHandler(int signalNumber)
 /// </summary>
 int main(int argc, char *argv[])
 {
-    Log_Debug("Avnet Default Application starting.\n");
+    Log_Debug("Avnet Guardian 100 Default Application starting.\n");
 
     // Read the current wifi configuration, output debug
     ReadWifiConfig(true);
@@ -136,6 +136,12 @@ int main(int argc, char *argv[])
     }
 #endif 
     exitCode = InitPeripheralsAndHandlers();
+
+#ifdef ENABLE_DEBUG_TO_UART
+    if(ENABLE_DEBUG_BY_DEFAULT){
+        SendUartMessage("\n\nAvnet Guardian 100 Default Application starting.\r\n");
+    }
+#endif    
 
     // Main loop
     while (exitCode == ExitCode_Success) {
@@ -287,6 +293,14 @@ static ExitCode InitPeripheralsAndHandlers(void)
         return ExitCode_Init_sensorPollTimer;
     }
 
+#if defined(ENABLE_UART_RX) || defined(ENABLE_DEBUG_TO_UART)
+    // Initialize the UART and UART event handler
+    ExitCode uartExitCode = initUart();
+    if (uartExitCode != ExitCode_Success) {
+        return uartExitCode;
+    }
+#endif // ENABLE_UART_RX    
+
 #ifdef IOT_HUB_APPLICATION    
     void *connectionContext = Options_GetConnectionContext();
 
@@ -308,6 +322,9 @@ void ClosePeripheralsAndHandlers(void)
     UserInterface_Cleanup();
     Connection_Cleanup();
     EventLoop_Close(eventLoop);
+#if defined(ENABLE_UART_RX) || defined(ENABLE_DEBUG_TO_UART)
+    CloseUart();
+#endif     
 
 #ifdef M4_INTERCORE_COMMS    
     CleanupM4Resources();
