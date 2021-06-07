@@ -583,11 +583,6 @@ static void AzureTimerEventHandler(EventLoopTimer *timer)
             (iotHubClientAuthenticationState == IoTHubClientAuthenticationState_NotAuthenticated)) {
             SetUpAzureIoTHubClient();
 
-#ifdef USE_IOT_CONNECT
-            // Kick off the IoTConnect specific logic since we're connected!
-            IoTConnectConnectedToIoTHub();
-#endif
-
         }
     } else {
         if (errno != EAGAIN) {

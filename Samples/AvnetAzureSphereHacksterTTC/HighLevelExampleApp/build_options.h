@@ -28,8 +28,8 @@
 // If this is a IoT Conect build, make sure to enable the IOT Hub application code
 #ifdef USE_IOT_CONNECT
 #define IOT_HUB_APPLICATION
+#define IOT_CONNECT_API_VERSION 1
 #endif 
-
 
 // Include SD1306 OLED code
 // To use the OLED 
