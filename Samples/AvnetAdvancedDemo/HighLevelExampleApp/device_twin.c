@@ -75,7 +75,9 @@ twin_t twinArray[] = {
 	{.twinKey = "OledDisplayMsg3",.twinVar = oled_ms3,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_STRING,.active_high = true,.twinHandler = (genericStringDTFunction)},
 	{.twinKey = "OledDisplayMsg4",.twinVar = oled_ms4,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_STRING,.active_high = true,.twinHandler = (genericStringDTFunction)},
     {.twinKey = "sensorPollPeriod",.twinVar = &readSensorPeriod,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_INT,.active_high = true,.twinHandler = (setSensorPollTimerFunction)},
+#ifdef M4_INTERCORE_COMMS    
     {.twinKey = "realTimeAutoTelemetryPeriod",.twinVar = &realTimeAutoTelemetryInterval,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_INT,.active_high = true,.twinHandler = (setRealTimeTelemetryInterval)},
+#endif     
     {.twinKey = "telemetryPeriod",.twinVar = &sendTelemetryPeriod,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_INT,.active_high = true,.twinHandler = (setTelemetryTimerFunction)}
 };
 
@@ -525,6 +527,7 @@ void setRealTimeTelemetryInterval(void* thisTwinPtr, JSON_Object *desiredPropert
     }
 
 }
+#endif // M4_INTERCORE_COMMS
 
 ///<summary>
 ///		Handler to update the sensor poll timer
@@ -568,5 +571,4 @@ void setTelemetryTimerFunction(void* thisTwinPtr, JSON_Object *desiredProperties
     Log_Debug("Received device update. New %s is %d\n", localTwinPtr->twinKey, *(int *)localTwinPtr->twinVar);
     checkAndUpdateDeviceTwin(localTwinPtr->twinKey, localTwinPtr->twinVar, TYPE_INT, true, true);
 }
-#endif 
 
