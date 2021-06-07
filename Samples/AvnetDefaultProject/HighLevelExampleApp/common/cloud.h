@@ -7,6 +7,7 @@
 #include "eventloop_timer_utilities.h"
 #include "azure_iot.h"
 #include <sys/time.h>
+#include "../avnet/iotConnect.h"
 #if defined(IOT_HUB_APPLICATION) && defined(ENABLE_TELEMETRY_RESEND_LOGIC)    
 #include "linkedList.h"
 #endif 
