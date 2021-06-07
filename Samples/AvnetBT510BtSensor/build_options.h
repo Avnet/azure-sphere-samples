@@ -16,5 +16,8 @@
 #endif 
 
 //#define USE_IOT_CONNECT
+#ifdef USE_IOT_CONNECT
+#define IOT_CONNECT_API_VERSION 1
+#endif 
 
 #endif 
