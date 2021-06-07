@@ -24,6 +24,7 @@
 // If this is a IoT Conect build, make sure to enable the IOT Hub application code
 #ifdef USE_IOT_CONNECT
 #define IOT_HUB_APPLICATION
+#define IOT_CONNECT_API_VERSION 1
 #endif 
 
 // Define if you want to build the Azure IoT Hub/IoTCentral Plug and Play application functionality
@@ -58,8 +59,8 @@
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define OLED_SD1306
-//#define ENABLE_BUTTON_FUNCTIONALITY
+//#define OLED_SD1306
+#define ENABLE_BUTTON_FUNCTIONALITY
 #define USE_SK_RGB_FOR_IOT_HUB_CONNECTION_STATUS
 
 #ifdef OLED_SD1306
@@ -77,7 +78,7 @@
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define M4_INTERCORE_COMMS
+//#define M4_INTERCORE_COMMS
 
 #ifdef M4_INTERCORE_COMMS
 #define MAX_REAL_TIME_APPS 2

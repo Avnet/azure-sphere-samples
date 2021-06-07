@@ -28,6 +28,7 @@ SOFTWARE.
 // This file implements the logic required to connect and interface with Avnet's IoTConnect platform
 
 #include "iotConnect.h"
+#ifdef USE_IOT_CONNECT
 
 // IoT Connect defines.
 #ifdef PARSE_ALL_IOTC_PARMETERS
@@ -46,7 +47,6 @@ static char sidString[SID_LEN + 1];
 bool IoTCConnected = false;
 
 static EventLoopTimer *IoTCTimer = NULL;
-static int IoTCHelloTimer = -1;
 static const int IoTCDefaultPollPeriodSeconds =
     15; // Wait for 15 seconds for IoT Connect to send first response
 
@@ -59,6 +59,8 @@ static IOTHUBMESSAGE_DISPOSITION_RESULT receiveMessageCallback(IOTHUB_MESSAGE_HA
 void IoTConnectConnectedToIoTHub(void)
 {
 
+    // Setup a callback for cloud to device messages.  This is how we'll receive the IoTConnect
+    // hello response.
     IoTHubDeviceClient_LL_SetMessageCallback(iothubClientHandle, receiveMessageCallback, NULL);
 
     // Since we're going to be connecting or re-connecting to Azure
@@ -77,9 +79,10 @@ void IoTConnectConnectedToIoTHub(void)
 ExitCode IoTConnectInit(void)
 {
 
-    IoTCHelloTimer = IoTCDefaultPollPeriodSeconds;
-    struct timespec IoTCHelloPeriod = {.tv_sec = IoTCHelloTimer, .tv_nsec = 0};
-    IoTCTimer = CreateEventLoopPeriodicTimer(eventLoop, &IoTCTimerEventHandler, &IoTCHelloPeriod);
+    // Create the timer to monitor the IoTConnect hello response status.  We will arm
+    // this timer once we're connected to the IoTHub for the first time
+    IoTCTimer = CreateEventLoopDisarmedTimer(eventLoop, &IoTCTimerEventHandler);
+
     if (IoTCTimer == NULL) {
         return ExitCode_Init_IoTCTimer;
     }
@@ -92,13 +95,15 @@ ExitCode IoTConnectInit(void)
 /// </summary>
 static void IoTCTimerEventHandler(EventLoopTimer *timer)
 {
-    if (!IoTCConnected) {
-        Log_Debug("Check to see if we need to send the IoTC Hello message\n");
 
-        if (ConsumeEventLoopTimerEvent(timer) != 0) {
-            exitCode = ExitCode_IoTCTimer_Consume;
-            return;
-        }
+    if (ConsumeEventLoopTimerEvent(timer) != 0) {
+        exitCode = ExitCode_IoTCTimer_Consume;
+        return;
+    }
+
+    // If we're not connected to IoTConnect, then fall through to re-send
+    // the hello message
+    if (!IoTCConnected) {
 
         bool isNetworkReady = false;
         if (Networking_IsNetworkingReady(&isNetworkReady) != -1) {
@@ -256,7 +261,7 @@ static IOTHUBMESSAGE_DISPOSITION_RESULT receiveMessageCallback(IOTHUB_MESSAGE_HA
 
         if (strncmp(newSIDString, sidString, SID_LEN) != 0) {
 #ifdef ENABLE_IOTC_MESSAGE_DEBUG
-            Log_Debug("sid string is different, write the new string to Flash\n");
+            Log_Debug("sid string is different, update the sid variable\n");
 #endif
             strncpy(sidString, newSIDString, SID_LEN);
         }
@@ -373,48 +378,24 @@ cleanup:
     return IOTHUBMESSAGE_ACCEPTED;
 }
 
-/// <summary>
-///     Function to generate the date and time string required by IoT Connect
-/// </summary>
-/// <param name="stringStorage">A character array that can hold 29 characters</param>
-/// <returns>Fills the passed in character array with the current date and time</returns>
-void getTimeString(char *stringStorage)
-{
-    // Generate the required "dt" time string in the correct format
-    time_t now;
-    time(&now);
-
-    strftime(stringStorage, sizeof("2020-06-23T15:27:33Z"), "%FT%TZ", gmtime(&now));
-
-    // strftime has provided the year, month, day, hour, minute and second details.
-    // Fill in the remaining required time string with ".00000000Z"  We overwite
-    // the 'Z' at the end of the original string but replace it at the end of the
-    // modified string.  Null terminate the string.
-    char timeFiller[] = {".0000000Z\0"};
-    size_t timeFillerLen = sizeof(timeFiller);
-    strncpy(&stringStorage[19], timeFiller, timeFillerLen);
-    return;
-}
-
 void IoTCsendIoTCHelloTelemetry(void)
 {
 
+#define IOT_CONNECT_API_VERSION 1    
+
     // Send the IoT Connect hello message to inform the platform that we're on-line!
-
-    // Declare a buffer for the time string and call the routine to put the current date time string
-    // into the buffer
-    char timeBuffer[29];
-    getTimeString(timeBuffer);
-
-    // Declare a buffer for the hello message and construct the message
-    char telemetryBuffer[IOTC_HELLO_TELEMETRY_SIZE];
-    int len = snprintf(telemetryBuffer, IOTC_HELLO_TELEMETRY_SIZE,
-                       "{\"t\": \"%s\",\"mt\" : 200,\"sid\" : \"\"}", timeBuffer);
-    if (len < 0 || len >= IOTC_HELLO_TELEMETRY_SIZE) {
-        Log_Debug("ERROR: Cannot write telemetry to buffer.\n");
-        return;
-    }
-    SendTelemetry(telemetryBuffer, false);
+    JSON_Value *rootValue = json_value_init_object();
+    JSON_Object *rootObject =
+    
+    json_value_get_object(rootValue);
+    json_object_dotset_number(rootObject, "mt", 200);
+    json_object_dotset_number(rootObject, "v", IOT_CONNECT_API_VERSION);
+    
+    char *serializedTelemetryUpload = json_serialize_to_string(rootValue);
+    SendTelemetry(serializedTelemetryUpload, false);
+    
+    json_free_serialized_string(serializedTelemetryUpload);   
+    json_value_free(rootValue);
 }
 
 // Construct a new message that contains all the required IoTConnect data and the original telemetry
@@ -427,7 +408,7 @@ bool FormatTelemetryForIoTConnect(const char *originalJsonMessage, char *modifie
     // Define the Json string format for sending telemetry to IoT Connect, note that the
     // actual telemetry data is inserted as the last string argument
     static const char IoTCTelemetryJson[] =
-        "{\"sid\":\"%s\",\"dtg\":\"%s\",\"mt\": 0,\"dt\": \"%s\",\"d\":[{\"d\":%s}]}";
+        "{\"sid\":\"%s\",\"dtg\":\"%s\",\"mt\": 0,\"d\":[{\"d\":%s}]}";
 
     // Verify that we've received the initial handshake response from IoTConnect, if not return
     // false
@@ -453,29 +434,13 @@ bool FormatTelemetryForIoTConnect(const char *originalJsonMessage, char *modifie
         Log_Debug("             Actural target buffersize: %d\n\n", modifiedBufferSize);
         return false;
     }
-
-    // Build up the IoTC message and insert the telemetry JSON
-
-    // Generate the required "dt" time string in the correct format
-    time_t now;
-    time(&now);
-    char timeBuffer[sizeof "2020-06-23T15:27:33.0000000Z "];
-    strftime(timeBuffer, sizeof(timeBuffer), "%FT%TZ", gmtime(&now));
-
-    // strftime has provided the year, month, day, hour, minute and second details.
-    // Fill in the remaining required time string with ".00000000Z"  We overwite
-    // the 'Z' at the end of the original string but replace it at the end of the
-    // modified string.  Null terminate the string.
-    char timeFiller[] = {".0000000Z\0"};
-    size_t timeFillerLen = sizeof(timeFiller);
-    strncpy(&timeBuffer[19], timeFiller, timeFillerLen);
-
-    // construct the telemetry message
+        // construct the telemetry message
     snprintf(modifiedJsonMessage, maxModifiedMessageSize, IoTCTelemetryJson, sidString, dtgGUID,
-             timeBuffer, originalJsonMessage);
+             originalJsonMessage);
 
     //    Log_Debug("Original message: %s\n", originalJsonMessage);
     //    Log_Debug("Returning message: %s\n", modifiedJsonMessage);
 
     return true;
 }
+#endif // USE_IOT_CONNECT

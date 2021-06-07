@@ -18,6 +18,7 @@
 #include <azure_sphere_provisioning.h>
 
 #include "exit_codes.h"
+#include "build_options.h"
 
 // Provide access to global variables from main.c
 extern IOTHUB_DEVICE_CLIENT_LL_HANDLE iothubClientHandle;

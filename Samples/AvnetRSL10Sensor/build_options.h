@@ -15,6 +15,10 @@
 
 //#define USE_IOT_CONNECT
 
+#ifdef USE_IOT_CONNECT
+#define IOT_CONNECT_API_VERSION 1
+#endif 
+
 // Include SD1306 OLED code
 // To use the OLED 
 // Install a 128x64 OLED display onto the unpopulated J7 Display connector

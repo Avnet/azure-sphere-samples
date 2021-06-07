@@ -45,7 +45,7 @@ SOFTWARE.
 #include <azure_sphere_provisioning.h>
 
 #include "../common/exitcodes.h"
-#include "../common/azure_iot.h"
+#include "build_options.h"
 
 #define IOT_CONNECT_TELEMETRY_BUFFER_SIZE 256
 #define GUID_LEN 36
@@ -62,6 +62,7 @@ extern volatile sig_atomic_t exitCode;
 extern char dtgGUID[GUID_LEN + 1];
 extern char gGUID[GUID_LEN + 1];
 extern char sidString[SID_LEN + 1];
+
 extern bool IoTCConnected;
 
 // Provide access to core functions in main.c
