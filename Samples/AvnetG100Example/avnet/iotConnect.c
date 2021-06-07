@@ -49,7 +49,6 @@ char sidString[SID_LEN + 1];
 bool IoTCConnected = false;
 
 static EventLoopTimer *IoTCTimer = NULL;
-static int IoTCHelloTimer = -1;
 static const int IoTCDefaultPollPeriodSeconds =
     15; // Wait for 15 seconds for IoT Connect to send first response
 
@@ -61,7 +60,8 @@ static IOTHUBMESSAGE_DISPOSITION_RESULT receiveMessageCallback(IOTHUB_MESSAGE_HA
 // Call when first connected to the IoT Hub
 void IoTConnectConnectedToIoTHub(void)
 {
-
+    // Setup a callback for cloud to device messages.  This is how we'll receive the IoTConnect
+    // hello response.
     IoTHubDeviceClient_LL_SetMessageCallback(iothubClientHandle, receiveMessageCallback, NULL);
 
     // Since we're going to be connecting or re-connecting to Azure
@@ -80,9 +80,8 @@ void IoTConnectConnectedToIoTHub(void)
 ExitCode IoTConnectInit(void)
 {
 
-    IoTCHelloTimer = IoTCDefaultPollPeriodSeconds;
-    struct timespec IoTCHelloPeriod = {.tv_sec = IoTCHelloTimer, .tv_nsec = 0};
-    IoTCTimer = CreateEventLoopPeriodicTimer(eventLoop, &IoTCTimerEventHandler, &IoTCHelloPeriod);
+    // Create the timer to monitor the IoTConnect hello response status
+    IoTCTimer = CreateEventLoopDisarmedTimer(eventLoop, &IoTCTimerEventHandler);
     if (IoTCTimer == NULL) {
         return ExitCode_Init_IoTCTimer;
     }
@@ -95,13 +94,15 @@ ExitCode IoTConnectInit(void)
 /// </summary>
 static void IoTCTimerEventHandler(EventLoopTimer *timer)
 {
-    if (!IoTCConnected) {
-        Log_Debug("Check to see if we need to send the IoTC Hello message\n");
 
-        if (ConsumeEventLoopTimerEvent(timer) != 0) {
-            exitCode = ExitCode_IoTCTimer_Consume;
-            return;
-        }
+    if (ConsumeEventLoopTimerEvent(timer) != 0) {
+        exitCode = ExitCode_IoTCTimer_Consume;
+        return;
+    }
+
+    // If we're not connected to IoTConnect, then fall through to re-send
+    // the hello message
+    if (!IoTCConnected) {
 
         bool isNetworkReady = false;
         if (Networking_IsNetworkingReady(&isNetworkReady) != -1) {
@@ -259,7 +260,7 @@ static IOTHUBMESSAGE_DISPOSITION_RESULT receiveMessageCallback(IOTHUB_MESSAGE_HA
 
         if (strncmp(newSIDString, sidString, SID_LEN) != 0) {
 #ifdef ENABLE_IOTC_MESSAGE_DEBUG
-            Log_Debug("sid string is different, write the new string to Flash\n");
+            Log_Debug("sid string is different, update sid variable\n");
 #endif
             strncpy(sidString, newSIDString, SID_LEN);
         }

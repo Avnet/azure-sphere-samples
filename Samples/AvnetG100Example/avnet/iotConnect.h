@@ -46,6 +46,7 @@ SOFTWARE.
 
 #include "../common/exitcodes.h"
 #include "../common/azure_iot.h"
+#include "build_options.h"
 
 #define IOT_CONNECT_TELEMETRY_BUFFER_SIZE 256
 #define GUID_LEN 36
