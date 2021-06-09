@@ -223,7 +223,7 @@ extern int DeviceMethodCallbackHandler(const char *methodName, const unsigned ch
 
 		    // Construct the response message.  This response will be displayed in the cloud when calling the direct method
             // if 'response' is non-NULL, the Azure IoT library frees it after use, so copy it to heap
-		    mallocSize = strlen(successResponse);
+		    mallocSize = strlen(successResponse)+1;
             *responsePayload = malloc(mallocSize);
             if (*responsePayload == NULL) {
 
