@@ -46,6 +46,9 @@ SOFTWARE.
 #include "../common/exitcodes.h"
 #include "build_options.h"
 #include "m4_support.h"
+#ifdef DEFER_OTA_UPDATES
+#include "deferred_updates.h"
+#endif // DEFER_OTA_UPDATES
 
 #include <applibs/eventloop.h>
 #include "eventloop_timer_utilities.h"
@@ -75,14 +78,60 @@ int desiredVersion = 0;
 //                void <yourFunctionName>(void* thisTwinPtr, JSON_Object *desiredProperties);
 // 
 twin_t twinArray[] = {
-    {.twinKey = "sensorPollPeriod",.twinVar = &readSensorPeriod,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_INT,.active_high = true,.twinHandler = (setSensorPollTimerFunction)},   
-    {.twinKey = "telemetryPeriod",.twinVar = &sendTelemetryPeriod,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_INT,.active_high = true,.twinHandler = (setTelemetryTimerFunction)},
+    {   // Define how often the sensor handler runs (seconds).  
+        // If zero, then handler does not run.
+        .twinKey = "sensorPollPeriod",
+        .twinVar = &readSensorPeriod,
+        .twinFd = NULL,
+        .twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,
+        .twinType = TYPE_INT,
+        .active_high = true,
+        .twinHandler = (setSensorPollTimerFunction)
+    },   
+    {   // Define how often the tx telemetry handler runs (seconds).  
+        // If zero, then handler does not run.
+        .twinKey = "telemetryPeriod",
+        .twinVar = &sendTelemetryPeriod,
+        .twinFd = NULL,
+        .twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,
+        .twinType = TYPE_INT,
+        .active_high = true,
+        .twinHandler = (setTelemetryTimerFunction)
+    },
 #ifdef M4_INTERCORE_COMMS
-    {.twinKey = "realTimeAutoTelemetryPeriod",.twinVar = &realTimeAutoTelemetryInterval,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_INT,.active_high = true,.twinHandler = (setRealTimeTelemetryInterval)},
+    {   // Define how often real time aplications send unsolicited telemetry (seconds).  
+        // If zero, then real time application don's send unsolicited telemetry.
+        .twinKey = "realTimeAutoTelemetryPeriod",
+        .twinVar = &realTimeAutoTelemetryInterval,
+        .twinFd = NULL,
+        .twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,
+        .twinType = TYPE_INT,
+        .active_high = true,
+        .twinHandler = (setRealTimeTelemetryInterval)
+    },
 #endif    
 #ifdef ENABLE_DEBUG_TO_UART 
-    {.twinKey = "enableUartDebug",.twinVar = &sendDebug,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_BOOL,.active_high = true,.twinHandler = (genericBoolDTFunction)},   
+    {   // Enable debug messages that are sent out the G100 external USB/UART port
+        .twinKey = "enableUartDebug",
+        .twinVar = &sendDebug,
+        .twinFd = NULL,
+        .twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,
+        .twinType = TYPE_BOOL,
+        .active_high = true,
+        .twinHandler = (genericBoolDTFunction)
+    },   
 #endif
+#ifdef DEFER_OTA_UPDATES
+    {   // Define a target time UTC "HR:MN" and defer OTA updates until that time
+        .twinKey = "otaTargetUtcTime",
+        .twinVar = NULL,  // Note this entry is NULL only because the custom handler does not utilize the entry
+        .twinFd = NULL,  
+        .twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,
+        .twinType = TYPE_STRING,
+        .active_high = true,
+        .twinHandler = (setOtaTargetUtcTime)
+    }  
+#endif     
 };
 
 // Calculate how many twin_t items are in the array.  We use this to iterate through the structure.

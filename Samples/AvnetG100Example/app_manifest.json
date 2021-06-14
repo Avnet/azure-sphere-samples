@@ -21,8 +21,11 @@
     "WifiConfig": true,
     "NetworkConfig": false,
     "SystemTime": false,
+    "SystemEventNotifications": true,
+    "SoftwareUpdateDeferral": true,
     "DeviceAuthentication": "00000000-0000-0000-0000-000000000000",
-    "PowerControls": [ "ForceReboot" ]
+    "PowerControls": [ "ForceReboot" ],
+    "MutableStorage": { "SizeKB": 8 }
   },
   "ApplicationType": "Default"
 }

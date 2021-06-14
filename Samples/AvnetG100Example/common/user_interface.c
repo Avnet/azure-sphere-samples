@@ -146,17 +146,33 @@ void checkMemoryUsageHighWaterMark(void)
 
     currentMax = Applications_GetPeakUserModeMemoryUsageInKB();
 
+#ifdef IOT_HUB_APPLICATION
+
     // Check to see if we have a new high water mark.  If so, send up a device twin update
     if(currentMax > memoryHighWaterMark){
 
+        // If we're connected to the IoTHub, then set the new high water mark and send a device twin udpate
+        if(iotHubClientAuthenticationState == IoTHubClientAuthenticationState_Authenticated){
+
+            // Set the new high water mark
+            memoryHighWaterMark = currentMax;
+            
+            // Send the reported property to the IoTHub    
+            updateDeviceTwin(true, ARGS_PER_TWIN_ITEM*1, TYPE_INT, "MemoryHighWaterKB", (int)memoryHighWaterMark);
+        }
+
+        Log_Debug("New Memory High Water Mark: %d KiB\n", memoryHighWaterMark);
+    }
+
+#else // !IOT_HUB_APPLICATION
+
+    // Check to see if we have a new high water mark.  If so, send up a device twin update
+    if(currentMax > memoryHighWaterMark){
+
+        // Set the new high water mark
         memoryHighWaterMark = currentMax;
         Log_Debug("New Memory High Water Mark: %d KiB\n", memoryHighWaterMark);
-
-#ifdef IOT_HUB_APPLICATION    
-        
-        // Send the reported property to the IoTHub    
-        updateDeviceTwin(true, ARGS_PER_TWIN_ITEM*1, TYPE_INT, "MemoryHighWaterKB", (int)memoryHighWaterMark);
-
-#endif         
     }
+    
+#endif // IOT_HUB_APPLICATION    
 }
