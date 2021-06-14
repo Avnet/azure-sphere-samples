@@ -200,6 +200,13 @@ The application can be configured for multiple different deployments.  Build opt
 * Enable to include the functionality required to communicate with the partner M4 real time application that reads the on-board light sensor
 * Read the details in m4_support.c
 
+### ENABLE_TELEMETRY_RESEND_LOGIC
+* Enable to include functionality to track when telemetry message are received by the IoTHub and if necessary re-transmit messages that were not received
+* Read the details in build_options.h
+
+### DEFER_OTA_UPDATES
+* Includes functionality to manage OTA deferments including a device twin handler and logic to force the application to only accept OTA updates at a specific time of day (UTC)
+
 ## WiFi or Ethernet
 
 By default, this sample runs over a Wi-Fi connection to the internet. To use Ethernet instead, follow the instructions [here](https://docs.microsoft.com/azure-sphere/network/connect-ethernet).
