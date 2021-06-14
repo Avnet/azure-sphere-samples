@@ -219,7 +219,7 @@
 //
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define DEFER_OTA_UPDATES
+//#define DEFER_OTA_UPDATES
 //#define ENABLE_OTA_DEBUG_TO_UART  // Write OTA debug out the debug uart, usefull to test/degub this feature
 
 // If SEND_OTA_STAUS_TELEMETRY is enabled the application sends additional telemetry to capture the OTA
@@ -229,8 +229,7 @@
 // TYPE_STRING {"otaUpdateType", UpdateTypeToString(data.update_type)} // System (OS) or application
 // TYPE_STRING {"otaUpdateStatus", EventStatusToString(status)}        // "Pending", "Final", "Deferred", "Completed";
 // TYPE_INT {"otaMaxDeferalTime", data.max_deferral_time_in_minutes)}  // Max allowable deferment time from the OS
-#define SEND_OTA_STATUS_TELEMETRY // Send OTA events and defer details as telemetry
-
+//#define SEND_OTA_STATUS_TELEMETRY // Send OTA events and defer details as telemetry
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 //
