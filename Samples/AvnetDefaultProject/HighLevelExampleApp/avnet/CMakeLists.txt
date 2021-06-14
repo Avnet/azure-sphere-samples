@@ -15,4 +15,6 @@ target_sources(${PROJECT_NAME}
     ${CMAKE_CURRENT_LIST_DIR}/oled.h
     ${CMAKE_CURRENT_LIST_DIR}/sd1306.c
     ${CMAKE_CURRENT_LIST_DIR}/sd1306.h
-)
+    ${CMAKE_CURRENT_LIST_DIR}/deferred_updates.c
+    ${CMAKE_CURRENT_LIST_DIR}/deferred_updates.h
+    )

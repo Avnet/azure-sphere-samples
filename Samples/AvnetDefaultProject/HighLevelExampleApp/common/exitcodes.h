@@ -88,6 +88,23 @@ typedef enum {
     // Telemetry Resend exit code
     ExitCode_AddTelemetry_Malloc_Failed = 57,
 
+    // Deferred OTA Update exit codes
+    ExitCode_SetUpSysEvent_RegisterEvent = 58,
+    ExitCode_UpdateCallback_UnexpectedEvent = 59,
+    ExitCode_UpdateCallback_DeferEvent = 60,
+    ExitCode_UpdateCallback_FinalUpdate = 61,
+    ExitCode_DeferredUpdate_CreateTimer = 62,
+    ExitCode_UpdateCallback_UnexpectedStatus = 63,
+    ExitCode_SigTerm_SetSigMaskFailure = 64,
+    ExitCode_SigTerm_Timeout = 65,
+    ExitCode_SigTerm_OtherFailure = 66,
+    ExitCode_SigTerm_UnexpectedSignal = 67,
+    ExitCode_UpdateCallback_GetUpdateEvent = 68,
+    ExitCode_Init_OtaUpdateTestTimer = 69,
+    ExitCode_ReadFile_OpenMutableFile = 70,
+    ExitCode_ReadFile_Read = 71, 
+    ExitCode_WriteFile_OpenMutableFile = 72,
+    ExitCode_WriteFile_Write = 73,
 
 } ExitCode;
 

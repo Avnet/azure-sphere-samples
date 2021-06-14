@@ -83,18 +83,93 @@ int desiredVersion = 0;
 // 
 twin_t twinArray[] = {
 #ifndef GUARDIAN_100
-	{.twinKey = "appLed",.twinVar = &appLedIsOn,.twinFd = &appLedFd,.twinGPIO = SAMPLE_APP_LED,.twinType = TYPE_BOOL,.active_high = false,.twinHandler = (genericGPIODTFunction)},
+	{
+        .twinKey = "appLed",
+        .twinVar = &appLedIsOn,
+        .twinFd = &appLedFd,
+        .twinGPIO = SAMPLE_APP_LED,
+        .twinType = TYPE_BOOL,
+        .active_high = false,
+        .twinHandler = (genericGPIODTFunction)
+    },
 #endif // !GUARDIAN_100    
-    {.twinKey = "sensorPollPeriod",.twinVar = &readSensorPeriod,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_INT,.active_high = true,.twinHandler = (setSensorPollTimerFunction)},   
-    {.twinKey = "telemetryPeriod",.twinVar = &sendTelemetryPeriod,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_INT,.active_high = true,.twinHandler = (setTelemetryTimerFunction)},
+    {
+        .twinKey = "sensorPollPeriod",
+        .twinVar = &readSensorPeriod,
+        .twinFd = NULL,
+        .twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,
+        .twinType = TYPE_INT,
+        .active_high = true,
+        .twinHandler = (setSensorPollTimerFunction)
+    },   
+    {
+        .twinKey = "telemetryPeriod",
+        .twinVar = &sendTelemetryPeriod,
+        .twinFd = NULL,
+        .twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,
+        .twinType = TYPE_INT,
+        .active_high = true,
+        .twinHandler = (setTelemetryTimerFunction)
+    },
 #ifdef M4_INTERCORE_COMMS
-    {.twinKey = "realTimeAutoTelemetryPeriod",.twinVar = &realTimeAutoTelemetryInterval,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_INT,.active_high = true,.twinHandler = (setRealTimeTelemetryInterval)},
+    {
+        .twinKey = "realTimeAutoTelemetryPeriod",
+        .twinVar = &realTimeAutoTelemetryInterval,
+        .twinFd = NULL,
+        .twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,
+        .twinType = TYPE_INT,
+        .active_high = true,
+        .twinHandler = (setRealTimeTelemetryInterval)
+    },
 #endif     
 #ifdef OLED_SD1306	
-    {.twinKey = "OledDisplayMsg1",.twinVar = oled_ms1,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_STRING,.active_high = true,.twinHandler = (genericStringDTFunction)},
-	{.twinKey = "OledDisplayMsg2",.twinVar = oled_ms2,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_STRING,.active_high = true,.twinHandler = (genericStringDTFunction)},
-	{.twinKey = "OledDisplayMsg3",.twinVar = oled_ms3,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_STRING,.active_high = true,.twinHandler = (genericStringDTFunction)},
-	{.twinKey = "OledDisplayMsg4",.twinVar = oled_ms4,.twinFd = NULL,.twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,.twinType = TYPE_STRING,.active_high = true,.twinHandler = (genericStringDTFunction)},
+    {
+        .twinKey = "OledDisplayMsg1",
+        .twinVar = oled_ms1,
+        .twinFd = NULL,
+        .twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,
+        .twinType = TYPE_STRING,
+        .active_high = true,
+        .twinHandler = (genericStringDTFunction)
+    },
+	{
+        .twinKey = "OledDisplayMsg2",
+        .twinVar = oled_ms2,
+        .twinFd = NULL,
+        .twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,
+        .twinType = TYPE_STRING,
+        .active_high = true,
+        .twinHandler = (genericStringDTFunction)
+    },
+	{
+        .twinKey = "OledDisplayMsg3",
+        .twinVar = oled_ms3,
+        .twinFd = NULL,
+        .twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,
+        .twinType = TYPE_STRING,
+        .active_high = true,
+        .twinHandler = (genericStringDTFunction)
+    },
+	{
+        .twinKey = "OledDisplayMsg4",
+        .twinVar = oled_ms4,
+        .twinFd = NULL,
+        .twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,
+        .twinType = TYPE_STRING,
+        .active_high = true,
+        .twinHandler = (genericStringDTFunction)
+    },
+#endif  
+#ifdef DEFER_OTA_UPDATES
+    {   // Define a target time UTC "HR:MN" and defer OTA updates until that time
+        .twinKey = "otaTargetUtcTime",
+        .twinVar = NULL,  // Note this entry is NULL only because the custom handler does not utilize the entry
+        .twinFd = NULL,  
+        .twinGPIO = NO_GPIO_ASSOCIATED_WITH_TWIN,
+        .twinType = TYPE_STRING,
+        .active_high = true,
+        .twinHandler = (setOtaTargetUtcTime)
+    }  
 #endif  
 };
 
