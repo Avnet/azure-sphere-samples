@@ -75,6 +75,13 @@ The application can be configured for multiple different deployments.  Build opt
 ### ```ENABLE_UART_RX```
 * Enable to include logic to read character data from the G100 external USB/UART.  Data is read until a '\n' new line charcter is encountered.  If the message is valid JSON, then the message is sent to the IoTHub as telemetry.  If the data is not valid JSON, it's output to debug.
 
+### ```ENABLE_TELEMETRY_RESEND_LOGIC```
+* Enable to include functionality to track when telemetry message are received by the IoTHub and if necessary re-transmit messages that were not received
+* Read the details in build_options.h
+
+### ```DEFER_OTA_UPDATES```
+* Includes functionality to manage OTA deferments including a device twin handler and logic to force the application to only accept OTA updates at a specific time of day (UTC)
+
 ## Prerequisites
 
 The sample requires the following software:
