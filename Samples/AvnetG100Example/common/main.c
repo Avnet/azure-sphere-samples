@@ -55,6 +55,9 @@
 #include "../avnet/device_twin.h"
 #include "../avnet/direct_methods.h"
 #include "../avnet/iotConnect.h"
+#ifdef DEFER_OTA_UPDATES
+#include "../avnet/deferred_updates.h"
+#endif 
 
 // If we have real time applications, include the support implementation
 #ifdef M4_INTERCORE_COMMS
@@ -153,6 +156,16 @@ int main(int argc, char *argv[])
     }
 
     ClosePeripheralsAndHandlers();
+
+#ifdef DEFER_OTA_UPDATES
+    // Check to see if we're exiting because OTA update process completed
+    if (exitCode == ExitCode_UpdateCallback_FinalUpdate) {
+        Log_Debug("INFO: Waiting for SIGTERM\n");
+
+        // SIGTERM should arrive in 10 seconds; allow 20 to be sure.
+        exitCode = WaitForSigTerm(20);
+    }
+#endif // DEFER_OTA_UPDATES
 
     Log_Debug("Application exiting.\n");
 
@@ -301,6 +314,14 @@ static ExitCode InitPeripheralsAndHandlers(void)
     }
 #endif // ENABLE_UART_RX    
 
+#ifdef DEFER_OTA_UPDATES
+    // Initialize the deferred OTA Update logic/resources
+    ExitCode DeferredUpdateInitExitCode = deferredOtaUpdate_Init();
+    if (DeferredUpdateInitExitCode != ExitCode_Success) {
+        return DeferredUpdateInitExitCode;
+    }
+#endif // DEFER_OTA_UPDATES
+
 #ifdef IOT_HUB_APPLICATION    
     void *connectionContext = Options_GetConnectionContext();
 
@@ -316,6 +337,8 @@ static ExitCode InitPeripheralsAndHandlers(void)
 /// </summary>
 void ClosePeripheralsAndHandlers(void)
 {
+    Log_Debug("Releasing system resources\n");
+
     DisposeEventLoopTimer(telemetryTimer);
     DisposeEventLoopTimer(sensorPollTimer);
     Cloud_Cleanup();
@@ -330,7 +353,9 @@ void ClosePeripheralsAndHandlers(void)
     CleanupM4Resources();
 #endif 
 
-    Log_Debug("Closing file descriptors\n");
+#ifdef DEFER_OTA_UPDATES
+    deferredOtaUpdate_Cleanup();
+#endif
 }
 
 // Read the current wifi configuration, output it to debug and send it up as device twin data

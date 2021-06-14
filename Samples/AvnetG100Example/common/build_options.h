@@ -172,6 +172,68 @@
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 //
+//  Defer OTA update logic
+//
+//  When enabled the application has visibility and can manage/defer OTA updates for both the 
+//  system (OS) and user applications.
+//
+//  The implementation provides two different approaches to managing OTA updates.  Note that these two
+//  approaches should NOT both be used by an application since each approach uses common control flags and
+//  each assumes it has ownership of the flags.
+//
+//  1. Set the system to only accept OTA updates at a specified time of day (UTC)
+//  2. Allow the application to defer/resume OTA events
+//
+//  1. Define a time of day (UTC) to apply OTA updates.  The device twin "otaTargetUtcTime" takes a 
+//     string argument in the format "HH:MM:xx" where HH is the hour of the day (0 - 23), and MM is the 
+//     minutes of the hour (0 - 59).  For example sending "13:02:00" will defer any OTA updates until
+//     01:02 PM (UTC).  The otaTargetUtcTime device twin handler writes the target time
+//     to mutable storage and the implementation reads the mutable storage on startup to persist the
+//     configuration across resets.  Once set the configuration will remain active until disabled.
+//
+//     To disable the functionality, update the device twin with an empty string "".  Note that the application
+//     validates the string.  The following device twin strings are invalid:  "1:12:00", "12:1:00", "12:01", "a1:12:00"
+//
+//     If the empty string is received while an update is pending, then the delay will be cleared and the update will
+//     kick off right away.
+//
+//  2. This method allows the application to defer OTA updates for a specified period of time.  This 
+//     functionality could be useful if an application is executing in a critical section and can't
+//     be interrupted by an OTA update.  The application simply calls void delayOtaUpdates(pausePeriod)
+//     to defer OTA updates and then call allowOtaUpdates() once control exits the critical section.
+//
+//     Note that if an OTA update has already started, these calls can't stop the update.  However,
+//     the implementation provides mechanisms to determine the current state of OTA updates.  See section
+//     3 below.
+//    
+//  3. The Azure Sphere application can also poll the status of OTA updates.  For example if an
+//     application frequently sleeps, or powers down to conserve power, the application can call
+//     OtaUpdateIsInProgress() or OtaUpdateIsPending( to determine if an OTA update is pending or is 
+//     currently being applied.  In this case the application may want to delay sleeping until the 
+//     update has been applied.
+//
+//   app_manifest.json - The implementation requies the folowing entrys:
+//      "SystemEventNotifications": true,
+//      "SoftwareUpdateDeferral": true,
+//      "MutableStorage": { "SizeKB": 8 }
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////
+
+#define DEFER_OTA_UPDATES
+//#define ENABLE_OTA_DEBUG_TO_UART  // Write OTA debug out the debug uart, usefull to test/degub this feature
+
+// If SEND_OTA_STAUS_TELEMETRY is enabled the application sends additional telemetry to capture the OTA
+// events and parameters in the cloud.
+//
+// TYPE_INT {"otaUpdateDelayPeriod", newDelayTime}                     // Deferal time in minutes
+// TYPE_STRING {"otaUpdateType", UpdateTypeToString(data.update_type)} // System (OS) or application
+// TYPE_STRING {"otaUpdateStatus", EventStatusToString(status)}        // "Pending", "Final", "Deferred", "Completed";
+// TYPE_INT {"otaMaxDeferalTime", data.max_deferral_time_in_minutes)}  // Max allowable deferment time from the OS
+#define SEND_OTA_STATUS_TELEMETRY // Send OTA events and defer details as telemetry
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////
+//
 //  Optional connection to real-time M4 application
 //
 //  M4_INTERCORE_COMMS: Enable to add Intercore Communication code to the project

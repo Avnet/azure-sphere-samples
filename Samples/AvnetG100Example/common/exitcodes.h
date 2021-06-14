@@ -93,6 +93,23 @@ typedef enum {
     ExitCode_SendMessage_Write = 59,
     ExitCode_UartRxMalloc_Error = 60,
 
+    // Deferred OTA Update exit codes
+    ExitCode_SetUpSysEvent_RegisterEvent = 61,
+    ExitCode_UpdateCallback_UnexpectedEvent = 62,
+    ExitCode_UpdateCallback_DeferEvent = 63,
+    ExitCode_UpdateCallback_FinalUpdate = 64,
+    ExitCode_DeferredUpdate_CreateTimer = 65,
+    ExitCode_UpdateCallback_UnexpectedStatus = 66,
+    ExitCode_SigTerm_SetSigMaskFailure = 67,
+    ExitCode_SigTerm_Timeout = 68,
+    ExitCode_SigTerm_OtherFailure = 69,
+    ExitCode_SigTerm_UnexpectedSignal = 70,
+    ExitCode_UpdateCallback_GetUpdateEvent = 71,
+    ExitCode_Init_OtaUpdateTestTimer = 72,
+    ExitCode_ReadFile_OpenMutableFile = 73,
+    ExitCode_ReadFile_Read = 74, 
+    ExitCode_WriteFile_OpenMutableFile = 75,
+    ExitCode_WriteFile_Write = 76,
 
 } ExitCode;
 

@@ -171,7 +171,8 @@ void checkMemoryUsageHighWaterMark(void)
 
         // Set the new high water mark
         memoryHighWaterMark = currentMax;
+        Log_Debug("New Memory High Water Mark: %d KiB\n", memoryHighWaterMark);
     }
-    Log_Debug("New Memory High Water Mark: %d KiB\n", memoryHighWaterMark);
+    
 #endif // IOT_HUB_APPLICATION    
 }
