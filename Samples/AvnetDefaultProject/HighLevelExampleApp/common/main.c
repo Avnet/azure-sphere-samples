@@ -1,26 +1,39 @@
-﻿/* Copyright (c) Microsoft Corporation. All rights reserved.
-   Licensed under the MIT License. */
+﻿/*
+
+MIT License
+
+Copyright (c) Avnet Corporation. All rights reserved.
+Author: Brian Willess
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
 
 // This sample C application demonstrates how to use Azure Sphere devices with Azure IoT
 // services, using the Azure IoT C SDK.
 //
-// It implements a simulated thermometer device, with the following features:
-// - Telemetry upload (simulated temperature, device moved events) using Azure IoT Hub events.
-// - Reporting device state (serial number) using device twin/read-only properties.
-// - Mutable device state (telemetry upload enabled) using device twin/writeable properties.
-// - Alert messages invoked from the cloud using device methods.
+// See common/build_options.h for all the application features that can be enabled.
 //
-// It can be configured using the top-level CMakeLists.txt to connect either directly to an
-// Azure IoT Hub, to an Azure IoT Edge device, or to use the Azure Device Provisioning service to
-// connect to either an Azure IoT Hub, or an Azure IoT Central application. All connection types
-// make use of the device certificate issued by the Azure Sphere security service to authenticate,
+// Connectivity options can be configured using the top-level CMakeLists.txt to connect either 
+// directly to an Azure IoT Hub, to an Azure IoT Edge device, or to use the Azure Device Provisioning 
+// service to connect to either an Azure IoT Hub, or an Azure IoT Central application. All connection 
+// types make use of the device certificate issued by the Azure Sphere security service to authenticate,
 // and supply an Azure IoT PnP model ID on connection.
-//
-// It uses the following Azure Sphere libraries:
-// - eventloop (system invokes handlers for timer events)
-// - gpio (digital input for button, digital output for LED)
-// - log (displays messages in the Device Output window during debugging)
-// - networking (network interface connection status)
 //
 // You will need to provide information in the application manifest to use this application. Please
 // see README.md and the other linked documentation for full details.
