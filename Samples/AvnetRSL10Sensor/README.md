@@ -31,6 +31,7 @@ The BLE PMOD needs to be updated with the latest SmartBasic firmware and then lo
 * Load the $autorun$.BT510.gateway.sb SmartBasic application onto the BL654 module
    * This custom SmartBasic application is located in this repo under the RSL10Repeater folder
    * Build and load the $autorun$.BT510.gateway.sb application
+   * If you get compile errors, make sure you updated the firmware on your device to 29.4.6.0 or greater!
   
 ### Connect the BLE PMOD to the StarterKit
 
