@@ -161,7 +161,7 @@ void checkMemoryUsageHighWaterMark(void)
             updateDeviceTwin(true, ARGS_PER_TWIN_ITEM*1, TYPE_INT, "MemoryHighWaterKB", (int)memoryHighWaterMark);
         }
 
-        Log_Debug("New Memory High Water Mark: %d KiB\n", memoryHighWaterMark);
+        Log_Debug("Memory High Water Mark: %d KiB\n", currentMax);
     }
 
 #else // !IOT_HUB_APPLICATION
@@ -171,7 +171,7 @@ void checkMemoryUsageHighWaterMark(void)
 
         // Set the new high water mark
         memoryHighWaterMark = currentMax;
-        Log_Debug("New Memory High Water Mark: %d KiB\n", memoryHighWaterMark);
+        Log_Debug("Memory High Water Mark: %d KiB\n", currentMax);
     }
     
 #endif // IOT_HUB_APPLICATION    

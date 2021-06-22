@@ -59,21 +59,19 @@ extern IOTHUB_DEVICE_CLIENT_LL_HANDLE iothubClientHandle;
 extern EventLoop *eventLoop;
 extern volatile sig_atomic_t exitCode;
 
-// Extern global variables
+// Extern global variables, these are needed to send IoTConnect formatted telemetry messages
 extern char dtgGUID[GUID_LEN + 1];
-extern char gGUID[GUID_LEN + 1];
 extern char sidString[SID_LEN + 1];
-extern bool IoTCConnected;
 
 // Provide access to core functions in main.c
 extern void SendEventCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result, void *context);
 extern bool IsConnectionReadyToSendTelemetry(void);
 extern void SendTelemetry(const char *, bool);
 
-// Define tthe IoTConnect functios that get called from main.c
-// void SendIoTConnectTelemetry(const char *jsonMessage);
+// Define tthe IoTConnect functions that get called from main.c
 bool FormatTelemetryForIoTConnect(const char *, char *, size_t);
 ExitCode IoTConnectInit(void);
 void IoTConnectConnectedToIoTHub(void);
+bool IoTConnectIsConnected(void);
 
 #endif
