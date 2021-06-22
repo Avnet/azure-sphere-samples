@@ -291,7 +291,7 @@ void checkMemoryUsageHighWaterMark(void)
     if(currentMax > memoryHighWaterMark){
 
         memoryHighWaterMark = currentMax;
-        Log_Debug("New Memory High Water Mark: %d KiB\n", memoryHighWaterMark);
+        Log_Debug("Memory High Water Mark: %d KiB\n", currentMax);
 
 #ifdef IOT_HUB_APPLICATION    
         
