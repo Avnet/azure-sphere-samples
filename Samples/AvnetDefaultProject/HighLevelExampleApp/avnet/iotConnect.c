@@ -30,21 +30,10 @@ SOFTWARE.
 #include "iotConnect.h"
 #include "../common/cloud.h"
 
-// IoT Connect defines.
-#ifdef PARSE_ALL_IOTC_PARMETERS
-static uint8_t ecValue;
-static uint8_t ctValue;
-static uint8_t hasDValue;
-static uint8_t hasAttrValue;
-static uint8_t hasSetValue;
-static uint8_t hasRValue;
-#endif
-
 #ifdef USE_IOT_CONNECT
 
 // Declare global variables
 char dtgGUID[GUID_LEN + 1];
-char gGUID[GUID_LEN + 1];
 char sidString[SID_LEN + 1];
 bool IoTCConnected = false;
 
@@ -107,9 +96,7 @@ static void IoTCTimerEventHandler(EventLoopTimer *timer)
         bool isNetworkReady = false;
         if (Networking_IsNetworkingReady(&isNetworkReady) != -1) {
             if (IsConnectionReadyToSendTelemetry()) {
-                if (!IoTCConnected) {
-                    IoTCsendIoTCHelloTelemetry();
-                }
+                IoTCsendIoTCHelloTelemetry();
             }
         } else {
             Log_Debug("Failed to get Network state\n");
@@ -128,9 +115,7 @@ static void IoTCTimerEventHandler(EventLoopTimer *timer)
 static IOTHUBMESSAGE_DISPOSITION_RESULT receiveMessageCallback(IOTHUB_MESSAGE_HANDLE message,
                                                                void *context)
 {
-#ifdef ENABLE_IOTC_MESSAGE_DEBUG
-    Log_Debug("Received message!\n");
-#endif
+    Log_Debug("Received Cloud to device  message\n");
 
     // Use a flag to track if we rx the dtg value
     bool dtgFlag = false;
@@ -142,39 +127,19 @@ static IOTHUBMESSAGE_DISPOSITION_RESULT receiveMessageCallback(IOTHUB_MESSAGE_HA
         return IOTHUBMESSAGE_REJECTED;
     }
 
-    // 'buffer' is not zero terminated, so null terminate it.
+    // 'buffer' is not null terminated, make a copy and null terminate it.
     unsigned char *str_msg = (unsigned char *)malloc(size + 1);
     if (str_msg == NULL) {
         Log_Debug("ERROR: could not allocate buffer for incoming message\n");
         abort();
     }
+
     memcpy(str_msg, buffer, size);
     str_msg[size] = '\0';
 
-#ifdef ENABLE_IOTC_MESSAGE_DEBUG
     Log_Debug("INFO: Received message '%s' from IoT Hub\n", str_msg);
-#endif
 
     // Process the message.  We're expecting a specific JSON structure from IoT Connect
-    //Current message structure/format 1/20/21
-    //{
-    //    "d": {
-    //        "ec": 0,
-    //        "ct": 200,
-    //        "sid": "NDA5ZTMyMTcyNGMyNGExYWIzMTZhYzE0NTI2MTFjYTU=UTE6MTQ6MDMuMDA=",
-    //        "dtg": "9320fa22-ae64-473d-b6ca-aff78da082ed",
-    //        "g": "0ac9b336-f3e7-4433-9f4e-67668117f2ec",
-    //        "has": {
-    //            "d": 0,
-    //            "attr": 1,
-    //            "set": 0,
-    //            "r": 0,
-    //            "ota": 0
-    //        }
-    //    }
-    //}
-    //
-    //New: Moving dtg and g into meta tag, along with other required information specific to device….
     //{
     //    "d": {
     //        "ec": 0,
@@ -217,157 +182,55 @@ static IOTHUBMESSAGE_DISPOSITION_RESULT receiveMessageCallback(IOTHUB_MESSAGE_HA
     if (dProperties == NULL) {
         Log_Debug("dProperties == NULL\n");
     }
+    else{ // There is a "d" object, drill into it and pull the data
 
-#ifdef PARSE_ALL_IOTC_PARMETERS
-    // The d properties should have a "ec" key
-    if (json_object_has_value(dProperties, "ec") != 0) {
-        ecValue = (uint8_t)json_object_get_number(dProperties, "ec");
-        Log_Debug("ec: %d\n", ecValue);
-    } else {
-        Log_Debug("ec not found!\n");
-    }
+        // The d properties should have a "sid" key
+        if (json_object_has_value(dProperties, "sid") != 0) {
+            strncpy(sidString, (char *)json_object_get_string(dProperties, "sid"), SID_LEN);
+            Log_Debug("sid: %s\n", sidString);
 
-    // The d properties should have a "ct" key
-    if (json_object_has_value(dProperties, "ct") != 0) {
-        ctValue = (uint8_t)json_object_get_number(dProperties, "ct");
-        Log_Debug("ct: %d\n", ctValue);
-    } else {
-        Log_Debug("ct not found!\n");
-    }
-#endif
-
-    // The d properties should have a "dtg" key
-    if (json_object_has_value(dProperties, "dtg") != 0) {
-        strncpy(dtgGUID, (char *)json_object_get_string(dProperties, "dtg"), GUID_LEN);
-        dtgFlag = true;
-
-#ifdef ENABLE_IOTC_MESSAGE_DEBUG
-        Log_Debug("dtg: %s\n", dtgGUID);
-#endif
-    } else {
-#ifdef ENABLE_IOTC_MESSAGE_DEBUG        
-        Log_Debug("dtg not found!\n");
-#endif         
-    }
-
-    // The d properties should have a "sid" key
-    if (json_object_has_value(dProperties, "sid") != 0) {
-        char newSIDString[64 + 1];
-        strncpy(newSIDString, (char *)json_object_get_string(dProperties, "sid"), SID_LEN);
-#ifdef ENABLE_IOTC_MESSAGE_DEBUG
-        Log_Debug("sid: %s\n", newSIDString);
-#endif
-
-        if (strncmp(newSIDString, sidString, SID_LEN) != 0) {
-#ifdef ENABLE_IOTC_MESSAGE_DEBUG
-            Log_Debug("sid string is different, update sid variable\n");
-#endif
-            strncpy(sidString, newSIDString, SID_LEN);
+        } else {
+            Log_Debug("sid not found!\n");
         }
-#ifdef ENABLE_IOTC_MESSAGE_DEBUG
-        else {
-            Log_Debug("sid string did not change!\n");
+
+        // Check to see if the object contains a "meta" object
+        JSON_Object *metaProperties = json_object_dotget_object(dProperties, "meta");
+        if (metaProperties == NULL) {
+            Log_Debug("metaProperties not found\n");
         }
-#endif
-    } else {
-#ifdef ENABLE_IOTC_MESSAGE_DEBUG
-        Log_Debug("sid not found!\n");
-#endif
-    }
+        else{
 
-    // The d properties should have a "g" key
-    if (json_object_has_value(dProperties, "g") != 0) {
-        strncpy(gGUID, (char *)json_object_get_string(dProperties, "g"), GUID_LEN);
-#ifdef ENABLE_IOTC_MESSAGE_DEBUG
-        Log_Debug("g: %s\n", gGUID);
-#endif
-    } else {
-#ifdef ENABLE_IOTC_MESSAGE_DEBUG        
-        Log_Debug("g not found!\n");
-#endif         
-    }
-
-#ifdef PARSE_ALL_IOTC_PARMETERS
-
-    // The d object has a "has" object
-    JSON_Object *hasProperties = json_object_dotget_object(dProperties, "has");
-    if (hasProperties == NULL) {
-        Log_Debug("hasProperties == NULL\n");
-    }
-
-    // The "has" properties should have a "d" key
-    if (json_object_has_value(hasProperties, "d") != 0) {
-        hasDValue = (uint8_t)json_object_get_number(hasProperties, "d");
-        Log_Debug("has:d: %d\n", hasDValue);
-    } else {
-        Log_Debug("has:d not found!\n");
-    }
-
-    // The "has" properties should have a "attr" key
-    if (json_object_has_value(hasProperties, "attr") != 0) {
-        hasAttrValue = (uint8_t)json_object_get_number(hasProperties, "attr");
-        Log_Debug("has:attr: %d\n", hasAttrValue);
-    } else {
-        Log_Debug("has:attr not found!\n");
-    }
-
-    // The "has" properties should have a "set" key
-    if (json_object_has_value(hasProperties, "set") != 0) {
-        hasSetValue = (uint8_t)json_object_get_number(hasProperties, "set");
-        Log_Debug("has:set: %d\n", hasSetValue);
-    } else {
-        Log_Debug("has:set not found!\n");
-    }
-
-    // The "has" properties should have a "r" key
-    if (json_object_has_value(hasProperties, "r") != 0) {
-        hasRValue = (uint8_t)json_object_get_number(hasProperties, "r");
-        Log_Debug("has:r %d\n", hasRValue);
-    } else {
-        Log_Debug("has:r not found!\n");
-    }
-#endif
-
-    // Check to see if the object contains a "meta" object
-    JSON_Object *metaProperties = json_object_dotget_object(dProperties, "meta");
-    if (metaProperties == NULL) {
-        Log_Debug("metaProperties == NULL\n");
-    }
-    else{
-
-    // The meta properties should have a "dtg" key
-    if (json_object_has_value(metaProperties, "dtg") != 0) {
-        strncpy(dtgGUID, (char *)json_object_get_string(metaProperties, "dtg"), GUID_LEN);
-        dtgFlag = true;
-
-#ifdef ENABLE_IOTC_MESSAGE_DEBUG
-        Log_Debug("dtg: %s\n", dtgGUID);
-#endif
+            // The meta properties should have a "dtg" key
+            if (json_object_has_value(metaProperties, "dtg") != 0) {
+                strncpy(dtgGUID, (char *)json_object_get_string(metaProperties, "dtg"), GUID_LEN);
+                dtgFlag = true;
+                Log_Debug("dtg: %s\n", dtgGUID);
+            }
+            else {
+                Log_Debug("dtg not found!\n");
+            }
         }
-#ifdef ENABLE_IOTC_MESSAGE_DEBUG        
-    else {
-        Log_Debug("dtg not found!\n");
-    }
-#endif         
-    }
-    // Check to see if we received all the required data we need to interact with IoTConnect
-    if( dtgFlag ){
 
-        // Set the IoTConnect Connected flag to true
-        IoTCConnected = true;
+        // Check to see if we received all the required data we need to interact with IoTConnect
+        if(dtgFlag){
 
-#ifdef ENABLE_IOTC_MESSAGE_DEBUG
-        Log_Debug("Set the IoTCConnected flag to true!\n");
-#endif
-    }
-#ifdef ENABLE_IOTC_MESSAGE_DEBUG
-    else{
-        // Set the IoTConnect Connected flag to false
-        IoTCConnected = false;
+            // Verify that the new dtg is a valid GUID, if not then we just received an empty dtg.
+            if(GUID_LEN == strnlen(dtgGUID, GUID_LEN+1)){
 
-        Log_Debug("Did not receive all the required data from IoTConnect\n");
+                // Set the IoTConnect Connected flag to true
+                IoTCConnected = true;
+                Log_Debug("Set the IoTCConnected flag to true!\n");
+            }
+        }
+        else{
+
+            // Set the IoTConnect Connected flag to false
+            IoTCConnected = false;
+            Log_Debug("Did not receive all the required data from IoTConnect\n");
+            Log_Debug("Set the IoTCConnected flag to false!\n");
+
+        }
     }
-#endif
 
 cleanup:
     // Release the allocated memory.
@@ -445,6 +308,10 @@ bool FormatTelemetryForIoTConnect(const char *originalJsonMessage, char *modifie
     //    Log_Debug("Returning message: %s\n", modifiedJsonMessage);
 
     return true;
+}
+
+bool IoTConnectIsConnected(void){
+    return IoTCConnected;
 }
 
 #endif //  USE_IOT_CONNECT

@@ -188,7 +188,7 @@ Cloud_Result Cloud_SendTelemetry(bool IoTConnectFormat, int arg_count, ...)
 #ifdef USE_IOT_CONNECT
     // If we need to send in IoTConnect format, but we're not connected to IoTConnect, then
     // return an error and don't send any telemetry.
-    if (IoTConnectFormat && !IoTCConnected) {
+    if (IoTConnectFormat && !IoTConnectIsConnected()) {
         return Cloud_Result_IoTConnect_unassociated;
     }
 #endif
