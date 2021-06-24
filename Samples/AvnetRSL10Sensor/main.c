@@ -122,7 +122,6 @@ static bool ButtonStateChanged(int fd, GPIO_Value_Type *oldState);
 static void UpdateOledEventHandler(EventLoopTimer *timer);
 #endif
 
-
 // Initialization/Cleanup
 static ExitCode InitPeripheralsAndHandlers(void);
 void CloseFdAndPrintError(int fd, const char *fdName);
@@ -135,6 +134,9 @@ extern RSL10Device_t Rsl10DeviceList[MAX_RSL10_DEVICES];
 #ifdef RSL10_SALES_DEMO
 void addWifiNetwork(char* , int, char*, int);
 bool networkExists(char* , int);
+#ifdef RSL10_SALES_DEMO
+EventLoopTimer *resetTelemetryTimeTimer = NULL;
+#endif 
 #endif // RSL10_SALES_DEMO
 
 // File descriptors - initialized to invalid value
@@ -143,7 +145,6 @@ bool networkExists(char* , int);
 char *cellinfo = NULL;
 #endif 
 
- #ifndef RSL10_SALES_DEMO
 // Buttons
 static int buttonAgpioFd = -1;
 static int buttonBgpioFd = -1;
@@ -151,7 +152,6 @@ static int buttonBgpioFd = -1;
 // State variables
 static GPIO_Value_Type buttonAState = GPIO_Value_High;
 static GPIO_Value_Type buttonBState = GPIO_Value_High;
-#endif 
 
 // UART
 static int uartFd = -1;
@@ -317,12 +317,32 @@ int main(int argc, char *argv[])
     return exitCode;
 }
 
-#ifndef RSL10_SALES_DEMO
+#ifdef RSL10_SALES_DEMO
+/// <summary>
+///     Reset the telemetry timer period back to the default time
+/// </summary>
+static void ResetTelemetryTimerHandler(EventLoopTimer *timer)
+{
+    if (ConsumeEventLoopTimerEvent(timer) != 0) {
+        exitCode = ExitCode_AzureTimer_Consume;
+        return;
+    }
+
+    // Update the send telemetry timer to send data every second
+	struct timespec newSendTelemeteryPeriod = { .tv_sec = DEFAULT_TELEMETRY_TX_TIME,.tv_nsec = 0 };
+    SetEventLoopTimerPeriod(sendTelemetryTimer, &newSendTelemeteryPeriod);
+
+}
+#endif 
+
 /// <summary>
 ///     Button timer event:  Check the status of the button
 /// </summary>
 static void ButtonPollTimerEventHandler(EventLoopTimer *timer)
 {
+#ifdef RSL10_SALES_DEMO
+    bool buttonPressed = false;
+#endif
     if (ConsumeEventLoopTimerEvent(timer) != 0) {
         exitCode = ExitCode_ButtonTimer_Consume;
         return;
@@ -332,6 +352,11 @@ static void ButtonPollTimerEventHandler(EventLoopTimer *timer)
     
    		if (buttonAState == GPIO_Value_Low) {
     		Log_Debug("Button A pressed!\n");
+
+#ifdef RSL10_SALES_DEMO
+            buttonPressed = true;
+#endif 
+
 #ifdef OLED_SD1306
             // Use buttonB presses to drive OLED to display the last screen
 	    	oled_state--;
@@ -357,6 +382,10 @@ static void ButtonPollTimerEventHandler(EventLoopTimer *timer)
     	if (buttonBState == GPIO_Value_Low) {
 			Log_Debug("Button B pressed!\n");
 
+#ifdef RSL10_SALES_DEMO
+            buttonPressed = true;
+#endif 
+
 #ifdef OLED_SD1306
             // Use buttonB presses to drive OLED to display the next screen
 	    	oled_state++;
@@ -372,9 +401,27 @@ static void ButtonPollTimerEventHandler(EventLoopTimer *timer)
 			Log_Debug("Button B released!\n");
 		}
 	}
+
+#ifdef RSL10_SALES_DEMO
+    if(buttonPressed){`
+
+        // Update the send telemetry timer to send data every second
+	    struct timespec newAccelReadPeriod = { .tv_sec =1,.tv_nsec = 0 };
+        SetEventLoopTimerPeriod(sendTelemetryTimer, &newAccelReadPeriod);
+
+        resetTelemetryTimeTimer = CreateEventLoopDisarmedTimer(eventLoop, ResetTelemetryTimerHandler);
+
+        // Setup a one shot timer to set the telemetry period back to the default time
+        struct timespec resetTelemeterTimerTime = { .tv_sec = DEFAULT_TELEMETRY_TX_TIME*5,.tv_nsec = 0 };
+        SetEventLoopTimerOneShot(resetTelemetryTimeTimer, &resetTelemeterTimerTime);
+
+
+
+    }
+
+#endif 
 	
 }
-#endif 
 /// <summary>
 ///     Azure timer event:  Check connection status and send telemetry
 /// </summary>
@@ -545,7 +592,7 @@ static ExitCode InitPeripheralsAndHandlers(void)
         return ExitCode_Init_EventLoop;
     }
 
-#ifndef RSL10_SALES_DEMO
+#ifdef RSL10_SALES_DEMO
     // Open SAMPLE_BUTTON_1 GPIO as input (ButtonA)
     Log_Debug("Opening SAMPLE_BUTTON_1 as input.\n");
     buttonAgpioFd = GPIO_OpenAsInput(SAMPLE_BUTTON_1);
@@ -611,6 +658,7 @@ static ExitCode InitPeripheralsAndHandlers(void)
             return ExitCode_Init_StatusLeds;
         }
     }
+
 
     // Create a UART_Config object, open the UART and set up UART event handler
     UART_Config uartConfig;
@@ -1227,7 +1275,7 @@ static void UartEventHandler(EventLoop *el, int fd, EventLoop_IoEvents events, v
 #endif
 }
 
-#ifndef RSL10_SALES_DEMO
+#ifdef RSL10_SALES_DEMO
 // <summary>
 ///     Check whether a given button has just been pressed/released.
 /// </summary>
