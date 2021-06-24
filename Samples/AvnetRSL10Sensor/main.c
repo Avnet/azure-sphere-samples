@@ -403,7 +403,7 @@ static void ButtonPollTimerEventHandler(EventLoopTimer *timer)
 	}
 
 #ifdef RSL10_SALES_DEMO
-    if(buttonPressed){`
+    if(buttonPressed){
 
         // Update the send telemetry timer to send data every second
 	    struct timespec newAccelReadPeriod = { .tv_sec =1,.tv_nsec = 0 };
