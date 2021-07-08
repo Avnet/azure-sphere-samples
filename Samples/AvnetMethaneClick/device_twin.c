@@ -158,8 +158,11 @@ void checkAndUpdateDeviceTwin(char* property, void* value, data_type_t type, boo
 			Log_Debug("[MCU] Updating device twin: %s\n", pjsonBuffer);
             TwinReportState(pjsonBuffer);
 		}
-		free(pjsonBuffer);
 	}
+    
+    if(pjsonBuffer != NULL){
+        free(pjsonBuffer);
+    }
 }
 
 /// <summary>

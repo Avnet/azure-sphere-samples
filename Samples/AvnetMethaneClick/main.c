@@ -412,7 +412,10 @@ static void ButtonPollTimerEventHandler(EventLoopTimer *timer)
 
 		Log_Debug("\n[Info] Sending telemetry %s\n", pjsonBuffer);
         SendTelemetry(pjsonBuffer, true);
-		free(pjsonBuffer);
+
+        if(pjsonBuffer != NULL){
+            free(pjsonBuffer);
+        }
 	}
 #endif     
 }
@@ -484,7 +487,10 @@ static void ReadSensorTimerEventHandler(EventLoopTimer *timer)
 
         Log_Debug("\n[Info] Sending telemetry: %s\n", pjsonBuffer);
         SendTelemetry(pjsonBuffer, true);
-        free(pjsonBuffer);
+
+        if(pjsonBuffer != NULL){
+            free(pjsonBuffer);
+        }
      
 #ifdef USE_IOT_CONNECT
     }

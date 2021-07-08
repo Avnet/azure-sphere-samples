@@ -696,7 +696,10 @@ void groveGPSRawDataHandler(void* msg){
 	    snprintf(pjsonBuffer, twinBufferSize, gpsDataJsonString, messageData->lat, messageData->lon, messageData->alt, messageData->numsats, messageData->fix_qual, messageData->horizontal_dilution );
 	    Log_Debug("[MCU] Updating device twin: %s\n", pjsonBuffer);
         TwinReportState(pjsonBuffer);
-	    free(pjsonBuffer);
+        
+        if(pjsonBuffer != NULL){
+            free(pjsonBuffer);
+    }
     }
 #endif // IOT_HUB_APPLICATION
 }

@@ -156,7 +156,7 @@ void SendTelemetryTimerEventHandler(EventLoopTimer *timer)
                               TYPE_FLOAT, "sampleKeyFloat", ((float)rand()/(float)(RAND_MAX)) * 100);
 
 #ifdef IOT_HUB_APPLICATION
-//    SendTelemetry(pjsonBuffer, true);
+    SendTelemetry(pjsonBuffer, true);
 #else
     Log_Debug("Not sending telemetry, non-IoT Hub build\n");
 #endif // IOT_HUB_APPLICATION
@@ -328,6 +328,10 @@ Cloud_Result Cloud_SendTelemetry(bool IoTConnectFormat, int arg_count, ...)
     // Clean up
     json_free_serialized_string(serializedJson);
     json_value_free(root_value);
+
+    if(pjsonBuffer != NULL){
+        free(pjsonBuffer);
+    }
 
     return result;
 }

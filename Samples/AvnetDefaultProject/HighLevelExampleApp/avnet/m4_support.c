@@ -681,7 +681,10 @@ void groveGPSRawDataHandler(void* msg){
 	    snprintf(pjsonBuffer, twinBufferSize, gpsDataJsonString, messageData->lat, messageData->lon, messageData->alt );
 	    Log_Debug("[MCU] Updating device twin: %s\n", pjsonBuffer);
         AzureIoT_DeviceTwinReportState(pjsonBuffer, NULL);
-	    free(pjsonBuffer);
+	    if(pjsonBuffer != NULL){
+            free(pjsonBuffer);
+    }
+
     }
 #endif         
 

@@ -482,7 +482,10 @@ static void ButtonPollTimerEventHandler(EventLoopTimer *timer)
 
    		Log_Debug("\n[Info] Sending telemetry %s\n", pjsonBuffer);
         SendTelemetry(pjsonBuffer, true);
-	    free(pjsonBuffer);
+
+        if(pjsonBuffer != NULL){
+            free(pjsonBuffer);
+        }
     }
 #endif // IOT_HUB_APPLICATION
 }
@@ -659,7 +662,10 @@ static void SendTelemetryTimerEventHandler(EventLoopTimer *timer)
 
             Log_Debug("\n[Info] Sending telemetry: %s\n", pjsonBuffer);
             SendTelemetry(pjsonBuffer, true);
-            free(pjsonBuffer);
+
+            if(pjsonBuffer != NULL){
+                free(pjsonBuffer);
+            }
         } else {
             // It is the first pass, flip the flag
             firstPass = false;
@@ -1778,7 +1784,10 @@ void checkMemoryUsageHighWaterMark(void)
 	    snprintf(pjsonBuffer, twinBufferSize, memoryHighWaterMarkJsonString, memoryHighWaterMark);
 	    Log_Debug("[MCU] Updating device twin: %s\n", pjsonBuffer);
         TwinReportState(pjsonBuffer);
-	    free(pjsonBuffer);
+        if(pjsonBuffer != NULL){
+            free(pjsonBuffer);
+        }
+
 #endif         
     }
 }

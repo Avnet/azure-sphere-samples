@@ -313,8 +313,11 @@ void checkAndUpdateDeviceTwin(char* property, void* value, data_type_t type, boo
 #endif //  IOT_HUB_APPLICATION
 
 		}
-		free(pjsonBuffer);
 	}
+
+    if(pjsonBuffer != NULL){
+        free(pjsonBuffer);
+    }
 }
 
 /// <summary>
