@@ -699,7 +699,7 @@ void groveGPSRawDataHandler(void* msg){
         
         if(pjsonBuffer != NULL){
             free(pjsonBuffer);
-    }
+        }
     }
 #endif // IOT_HUB_APPLICATION
 }

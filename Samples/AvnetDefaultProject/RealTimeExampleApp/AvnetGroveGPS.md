@@ -108,17 +108,16 @@ Include the raw data handler in your high level application in m4_support.c
             char *pjsonBuffer = (char *)malloc(twinBufferSize);
             if (pjsonBuffer == NULL) {
                 Log_Debug("ERROR: not enough memory to report GPS location data.");
-    	    }
+    	  }
 
-            // Build out the JSON and send it as a device twin update
-	    snprintf(pjsonBuffer, twinBufferSize, gpsDataJsonString, messageData->lat, messageData->lon, messageData->alt );
-	    Log_Debug("[MCU] Updating device twin: %s\n", pjsonBuffer);
-            TwinReportState(pjsonBuffer);
-      if(pjsonBuffer != NULL){
-        free(pjsonBuffer);
-    }
-
+        // Build out the JSON and send it as a device twin update
+	      snprintf(pjsonBuffer, twinBufferSize, gpsDataJsonString, messageData->lat, messageData->lon, messageData->alt );
+	      Log_Debug("[MCU] Updating device twin: %s\n", pjsonBuffer);
+        TwinReportState(pjsonBuffer);
+        if(pjsonBuffer != NULL){
+          free(pjsonBuffer);
         }
+      }
     #endif         
     }
 

@@ -683,7 +683,7 @@ void groveGPSRawDataHandler(void* msg){
         AzureIoT_DeviceTwinReportState(pjsonBuffer, NULL);
 	    if(pjsonBuffer != NULL){
             free(pjsonBuffer);
-    }
+        }
 
     }
 #endif         
