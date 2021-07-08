@@ -328,9 +328,12 @@ Cloud_Result Cloud_SendTelemetry(bool IoTConnectFormat, int arg_count, ...)
     // Clean up
     json_free_serialized_string(serializedJson);
     json_value_free(root_value);
+    
+#ifdef USE_IOT_CONNECT    
     if(pjsonBuffer != NULL){
        free(pjsonBuffer);
     }
+#endif     
 
     return result;
 }

@@ -494,9 +494,11 @@ Cloud_Result updateDeviceTwin(bool ioTRwFormat, int arg_count, ...)
     json_free_serialized_string(serializedJson);
     json_value_free(root_value);
     
+#ifdef USE_PNP    
     if(pjsonBuffer != NULL){
         free(pjsonBuffer);
     }
+#endif 
 
     return result;
 }
