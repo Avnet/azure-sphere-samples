@@ -27,5 +27,4 @@ For more information see the [Code of Conduct FAQ](https://opensource.microsoft.
 contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
 
 ## Licenses
-
 For information about the licenses that apply to a particular sample, see the License and README.md files in each subdirectory.
